@@ -43,10 +43,28 @@ const app = express();
 // 使用 express.json() 中间件来解析传入的 JSON 请求体
 app.use(express.json());
 
-// 添加一个根路由来响应浏览器请求，并显示 index.html
+
+// 页面路由
 app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/index.html');
+    res.sendFile(__dirname + '/webui1.html');
 });
+
+app.get('/vip', (req, res) => {
+    res.sendFile(__dirname + '/webui1.html');
+});
+
+app.get('/benefits', (req, res) => {
+    res.sendFile(__dirname + '/webui2.html');
+});
+
+app.get('/faq', (req, res) => {
+    res.sendFile(__dirname + '/faq.html');
+});
+
+app.get('/contact', (req, res) => {
+    res.sendFile(__dirname + '/contact.html');
+});
+
 
 // 这是我们的 webhook 路由
 // 当 Telegram 发送更新时，会向这个地址发送 POST 请求
