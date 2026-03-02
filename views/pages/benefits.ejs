@@ -1,0 +1,96 @@
+<%
+const pageStyles = `
+.benefits-section { max-width: 1200px; margin: 4rem auto; padding: 0 5%; }
+.benefits-header { text-align: center; margin-bottom: 4rem; }
+.benefits-title { font-size: 2.5rem; line-height: 1.3; margin-bottom: 1rem; background: linear-gradient(135deg, #3c82f6, #8338ec); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.benefits-subtitle { color: #b0b0c0; font-size: 1.1rem; max-width: 800px; margin: 0 auto; }
+.benefits-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem; }
+.benefit-card { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 2rem; border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); transition: transform 0.3s, border-color 0.3s; }
+.benefit-card:hover { transform: translateY(-5px); border-color: rgba(60, 130, 246, 0.3); }
+.benefit-card .card-icon { width: 60px; height: 60px; background: linear-gradient(135deg, rgba(60, 130, 246, 0.2), rgba(131, 56, 236, 0.2)); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; }
+.benefit-card .card-icon img { width: 32px; height: 32px; object-fit: contain; }
+.benefit-card .card-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem; color: #fff; }
+.benefit-card .card-desc { color: #b0b0c0; line-height: 1.6; font-size: 1rem; }
+.benefits-compare { margin-top: 6rem; background: rgba(255, 255, 255, 0.03); border-radius: 16px; padding: 2.5rem; border: 1px solid rgba(255, 255, 255, 0.1); }
+.compare-title { font-size: 1.8rem; margin-bottom: 2rem; text-align: center; }
+.compare-table { width: 100%; border-collapse: collapse; }
+.compare-table th, .compare-table td { padding: 1.2rem; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.compare-table th { color: #e0e0e0; font-weight: 600; }
+.compare-table td { color: #b0b0c0; }
+.compare-table tr:last-child td { border-bottom: none; }
+.tag-vip { color: #3c82f6; font-weight: 600; }
+.tag-normal { color: #888; }
+.benefits-cta { text-align: center; margin-top: 4rem; }
+.cta-btn { display: inline-block; background: linear-gradient(135deg, #3c82f6, #8338ec); border-radius: 8px; padding: 1.2rem 2.5rem; color: #fff; font-size: 1.1rem; font-weight: 600; text-decoration: none; transition: opacity 0.3s; }
+.cta-btn:hover { opacity: 0.9; }
+.footer { margin-top: 6rem; }
+@media (max-width: 768px) { .benefits-title { font-size: 2rem; } .benefits-cards { grid-template-columns: 1fr; } .compare-table th, .compare-table td { padding: 0.8rem; font-size: 0.9rem; } .cta-btn { width: 100%; } }
+`;
+%>
+<%- include('../partials/head', { title: '社群权益', pageStyles }) %>
+<%- include('../partials/header', { activeNav: 'benefits' }) %>
+
+<section class="benefits-section">
+    <div class="benefits-header">
+        <h2 class="benefits-title">VIP社群专属权益</h2>
+        <p class="benefits-subtitle">支付50 USDT/月，解锁Web3领域独家资源、实时行情分析、一对一答疑等核心权益，全程自动化管理，到期自动提醒续费</p>
+    </div>
+
+    <div class="benefits-cards">
+        <div class="benefit-card">
+            <div class="card-icon"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/telegram.svg" alt="专属社群"></div>
+            <h3 class="card-title">Telegram VIP专属群</h3>
+            <p class="card-desc">加入封闭式VIP群聊，与资深Web3从业者、项目方核心成员交流，获取一手行业信息，禁止广告/无关内容，保证社群质量。</p>
+        </div>
+        <div class="benefit-card">
+            <div class="card-icon"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/ethereum.svg" alt="行情分析"></div>
+            <h3 class="card-title">实时行情&策略分析</h3>
+            <p class="card-desc">每日更新TRC20/ETH/比特币行情解读，提供低风险套利策略、合约操作建议，规避市场波动风险。</p>
+        </div>
+        <div class="benefit-card">
+            <div class="card-icon"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/books.svg" alt="独家资源"></div>
+            <h3 class="card-title">Web3独家学习资源</h3>
+            <p class="card-desc">免费获取区块链开发教程、NFT铸造指南、智能合约审计手册，定期分享优质研报和工具合集（存储于web3.storage，永久可查）。</p>
+        </div>
+        <div class="benefit-card">
+            <div class="card-icon"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/chatbot.svg" alt="一对一答疑"></div>
+            <h3 class="card-title">一对一问题答疑</h3>
+            <p class="card-desc">针对ENS域名绑定、TRC20转账、钱包安全等问题，提供24小时内专业解答，避免新手踩坑。</p>
+        </div>
+        <div class="benefit-card">
+            <div class="card-icon"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/bell.svg" alt="到期提醒"></div>
+            <h3 class="card-title">智能到期提醒</h3>
+            <p class="card-desc">会员到期前3天，Telegram机器人自动私信提醒续费，避免错过权益；续费后自动延长有效期，无需人工审核。</p>
+        </div>
+        <div class="benefit-card">
+            <div class="card-icon"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/shield-halved.svg" alt="安全保障"></div>
+            <h3 class="card-title">资产安全保障</h3>
+            <p class="card-desc">分享钱包防盗、钓鱼链接识别技巧，定期更新黑灰产防范指南，降低数字资产被盗风险。</p>
+        </div>
+    </div>
+
+    <div class="benefits-compare">
+        <h3 class="compare-title">VIP会员 vs 普通用户</h3>
+        <table class="compare-table">
+            <thead>
+                <tr><th>权益项</th><th>VIP会员</th><th>普通用户</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Telegram专属群</td><td><span class="tag-vip">✓ 可加入</span></td><td><span class="tag-normal">× 无权限</span></td></tr>
+                <tr><td>行情策略分析</td><td><span class="tag-vip">✓ 每日更新</span></td><td><span class="tag-normal">× 仅公开内容</span></td></tr>
+                <tr><td>独家学习资源</td><td><span class="tag-vip">✓ 免费下载</span></td><td><span class="tag-normal">× 付费购买</span></td></tr>
+                <tr><td>一对一答疑</td><td><span class="tag-vip">✓ 24小时内回复</span></td><td><span class="tag-normal">× 无</span></td></tr>
+                <tr><td>到期自动提醒</td><td><span class="tag-vip">✓ 自动私信</span></td><td><span class="tag-normal">× 无</span></td></tr>
+                <tr><td>资产安全指南</td><td><span class="tag-vip">✓ 专属定制</span></td><td><span class="tag-normal">× 基础内容</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="benefits-cta">
+        <a href="/vip" class="cta-btn">立即订阅VIP会员</a>
+    </div>
+</section>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

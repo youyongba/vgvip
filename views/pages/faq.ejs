@@ -1,0 +1,112 @@
+<%
+const pageStyles = `
+.faq-section { max-width: 800px; margin: 4rem auto; padding: 0 5%; }
+.faq-header { text-align: center; margin-bottom: 4rem; }
+.faq-title { font-size: 2.5rem; line-height: 1.3; margin-bottom: 1rem; background: linear-gradient(135deg, #3c82f6, #8338ec); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.faq-subtitle { color: #b0b0c0; font-size: 1.1rem; }
+.accordion { display: flex; flex-direction: column; gap: 1rem; }
+.accordion-item { background: rgba(255, 255, 255, 0.05); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); overflow: hidden; transition: border-color 0.3s; }
+.accordion-item:hover { border-color: rgba(60, 130, 246, 0.3); }
+.accordion-header { padding: 1.5rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+.accordion-title { font-size: 1.1rem; font-weight: 600; color: #e0e0e0; }
+.accordion-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; transition: transform 0.3s; color: #3c82f6; }
+.accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: rgba(0, 0, 0, 0.2); }
+.accordion-content p { padding: 1.5rem; color: #b0b0c0; line-height: 1.6; font-size: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.05); }
+.accordion-item.active .accordion-icon { transform: rotate(180deg); }
+.accordion-item.active .accordion-content { max-height: 500px; }
+.accordion-item.active .accordion-title { color: #fff; }
+.contact-cta { text-align: center; margin-top: 4rem; padding: 2rem; background: rgba(255, 255, 255, 0.03); border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1); }
+.contact-cta h3 { margin-bottom: 1rem; font-size: 1.5rem; }
+.contact-cta p { color: #b0b0c0; margin-bottom: 1.5rem; }
+.contact-cta .contact-btn { display: inline-block; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 0.8rem 2rem; color: #fff; text-decoration: none; transition: all 0.3s; }
+.contact-cta .contact-btn:hover { background: rgba(255, 255, 255, 0.2); transform: translateY(-2px); }
+.footer { margin-top: 6rem; }
+@media (max-width: 768px) { .faq-title { font-size: 2rem; } .accordion-header { padding: 1.2rem; } .accordion-title { font-size: 1rem; } }
+`;
+%>
+<%- include('../partials/head', { title: '常见问题', pageStyles }) %>
+<%- include('../partials/header', { activeNav: 'faq' }) %>
+
+<section class="faq-section">
+    <div class="faq-header">
+        <h2 class="faq-title">常见问题解答</h2>
+        <p class="faq-subtitle">关于订阅、支付、社群权益的疑问，这里都有答案</p>
+    </div>
+
+    <div class="accordion">
+        <div class="accordion-item">
+            <div class="accordion-header">
+                <span class="accordion-title">支付后多久能进群？</span>
+                <span class="accordion-icon">▼</span>
+            </div>
+            <div class="accordion-content">
+                <p>通常情况下，支付完成后系统会在 3-5 分钟内自动确认链上交易。确认无误后，Telegram 机器人会立即将您拉入 VIP 专属群组。</p>
+            </div>
+        </div>
+        <div class="accordion-item">
+            <div class="accordion-header">
+                <span class="accordion-title">支持哪些支付方式？</span>
+                <span class="accordion-icon">▼</span>
+            </div>
+            <div class="accordion-content">
+                <p>目前我们仅支持 TRC20 网络的 USDT 支付。请务必确保使用 TRC20 通道转账，使用 ERC20 或其他链可能导致资产丢失且无法找回。</p>
+            </div>
+        </div>
+        <div class="accordion-item">
+            <div class="accordion-header">
+                <span class="accordion-title">会员到期后会被踢出吗？</span>
+                <span class="accordion-icon">▼</span>
+            </div>
+            <div class="accordion-content">
+                <p>是的。会员到期前 3 天，机器人会发送私信提醒您续费。如果到期未续费，系统将自动把您移出 VIP 群组。续费后可立即重新加入。</p>
+            </div>
+        </div>
+        <div class="accordion-item">
+            <div class="accordion-header">
+                <span class="accordion-title">如果不满意可以退款吗？</span>
+                <span class="accordion-icon">▼</span>
+            </div>
+            <div class="accordion-content">
+                <p>由于 VIP 社群属于虚拟数字化服务，且包含独家资源和实时策略，一旦支付成功并入群，原则上不支持退款。建议您先了解清楚权益再进行订阅。</p>
+            </div>
+        </div>
+        <div class="accordion-item">
+            <div class="accordion-header">
+                <span class="accordion-title">如何绑定 ENS 域名？</span>
+                <span class="accordion-icon">▼</span>
+            </div>
+            <div class="accordion-content">
+                <p>入群后，您可以私信机器人发送您的 ENS 域名。机器人会验证该域名的所有权（需签名），验证通过后将在群内显示您的 ENS 身份标识。</p>
+            </div>
+        </div>
+        <div class="accordion-item">
+            <div class="accordion-header">
+                <span class="accordion-title">遇到机器人没反应怎么办？</span>
+                <span class="accordion-icon">▼</span>
+            </div>
+            <div class="accordion-content">
+                <p>如果支付超过 10 分钟仍未进群，请检查您的交易哈希（TXID）是否成功。确认成功后，请联系人工客服或在网页底部点击「联系我们」提交工单。</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="contact-cta">
+        <h3>没找到想要的答案？</h3>
+        <p>我们的支持团队随时为您提供帮助</p>
+        <a href="/contact" class="contact-btn">联系人工客服</a>
+    </div>
+</section>
+
+<%- include('../partials/footer') %>
+<script>
+document.querySelectorAll('.accordion-header').forEach(header => {
+    header.addEventListener('click', () => {
+        const item = header.parentElement;
+        const isActive = item.classList.contains('active');
+        document.querySelectorAll('.accordion-item').forEach(i => i.classList.remove('active'));
+        if (!isActive) item.classList.add('active');
+    });
+});
+</script>
+</body>
+</html>
