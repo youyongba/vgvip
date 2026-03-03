@@ -20,6 +20,14 @@ const pageStyles = `
 .card-period { color: #3c82f6; font-weight: 500; }
 .payment-address { background: rgba(255, 255, 255, 0.03); border-radius: 8px; padding: 1rem; margin-bottom: 2rem; font-family: 'Courier New', monospace; font-size: 0.9rem; word-break: break-all; border: 1px solid rgba(255, 255, 255, 0.08); }
 .payment-address label { display: block; color: #b0b0c0; font-size: 0.8rem; margin-bottom: 0.5rem; }
+.payment-address-wrap { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+.payment-qr { flex-shrink: 0; padding: 8px; background: #fff; border-radius: 8px; }
+.payment-qr img { display: block; width: 140px; height: 140px; }
+.payment-address-text { flex: 1; min-width: 0; }
+.copy-addr-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.copy-addr-btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(60, 130, 246, 0.2); border: 1px solid rgba(60, 130, 246, 0.4); border-radius: 6px; color: #3c82f6; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+.copy-addr-btn:hover { background: rgba(60, 130, 246, 0.3); }
+.copy-addr-btn.copied { color: #22c55e; border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.15); }
 .telegram-input { width: 100%; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 1rem; color: #fff; margin-bottom: 2rem; outline: none; font-size: 1rem; }
 .telegram-input::placeholder { color: #666; }
 .pay-btn { width: 100%; background: linear-gradient(135deg, #3c82f6, #8338ec); border: none; border-radius: 8px; padding: 1.2rem; color: #fff; font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: opacity 0.3s; }
@@ -58,28 +66,33 @@ const pageStyles = `
             </li>
             <li class="feature-item">
                 <div class="feature-icon">✓</div>
-                <div class="feature-text">ENS域名绑定，链上身份验证</div>
-            </li>
-            <li class="feature-item">
-                <div class="feature-icon">✓</div>
-                <div class="feature-text">web3.storage备份所有订阅数据</div>
+                <div class="feature-text">链上交易自动验证，安全透明</div>
             </li>
         </ul>
         <div class="tech-stack">
             <div class="tech-item"><img src="/assets/tron-logo.svg" alt="TRC20"><span>TRC20</span></div>
             <div class="tech-item"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/telegram.svg" alt="Telegram"><span>Telegram</span></div>
-            <div class="tech-item"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/ethereum.svg" alt="ENS"><span>ENS</span></div>
-            <div class="tech-item"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/ipfs.svg" alt="web3.storage"><span>web3.storage</span></div>
         </div>
     </div>
     <div class="subscription-card">
         <div class="card-header">
-            <div class="card-price">50 USDT <span>/ 月</span></div>
+            <div class="card-price">1 USDT <span>/ 月</span></div>
             <div class="card-period">VIP会员订阅</div>
         </div>
         <div class="payment-address">
-            <label>TRC20收款地址（绑定ENS：vip.web3.eth）</label>
-            <div>TYG87968273648927364892736489273648927364</div>
+            <label>TRC20收款地址</label>
+            <div class="payment-address-wrap">
+                <div class="payment-qr">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=<%= encodeURIComponent(paymentAddress) %>" alt="扫码获取收款地址" title="扫码获取收款地址">
+                </div>
+                <div class="payment-address-text">
+                    <div class="copy-addr-row">
+                        <span id="addrText"><%= paymentAddress %></span>
+                        <button type="button" class="copy-addr-btn" id="copyAddrBtn" data-addr="<%= paymentAddress %>">📋 复制地址</button>
+                    </div>
+                    <p style="margin-top: 0.5rem; font-size: 0.75rem; color: #888;">扫码或复制地址转账 50 USDT (TRC20)</p>
+                </div>
+            </div>
         </div>
         <input type="text" class="telegram-input" placeholder="请输入你的Telegram账号（如：@username）">
         <button class="pay-btn">确认支付并加入社群</button>
@@ -111,5 +124,31 @@ const pageStyles = `
 </section>
 
 <%- include('../partials/footer') %>
+<script>
+(function() {
+    var btn = document.getElementById('copyAddrBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        var addr = this.getAttribute('data-addr');
+        var fn = navigator.clipboard && navigator.clipboard.writeText
+            ? function() { return navigator.clipboard.writeText(addr); }
+            : function() {
+                var ta = document.createElement('textarea');
+                ta.value = addr;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); return Promise.resolve(); } catch (e) { return Promise.reject(e); }
+                finally { document.body.removeChild(ta); }
+            };
+        fn().then(function() {
+            btn.textContent = '✓ 已复制';
+            btn.classList.add('copied');
+            setTimeout(function() { btn.textContent = '📋 复制地址'; btn.classList.remove('copied'); }, 2000);
+        }).catch(function() { alert('复制失败，请手动选择地址复制'); });
+    });
+})();
+</script>
 </body>
 </html>

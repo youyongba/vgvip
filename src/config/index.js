@@ -25,14 +25,6 @@ const config = {
         merchantPrivateKey: process.env.MERCHANT_TRON_PRIVATE_KEY,
     },
 
-    web3Storage: {
-        key: process.env.WEB3_STORAGE_KEY,
-    },
-
-    ens: {
-        rpcUrl: process.env.ENS_RPC_URL,
-    },
-
     schedule: {
         cron: process.env.SCHEDULE_CRON || '0 0 * * *',
         remindBeforeDays: parseInt(process.env.REMIND_BEFORE_DAYS, 10) || 3,
