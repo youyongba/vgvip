@@ -32,12 +32,13 @@ async function handleExpired() {
         if (sub.telegramUserId) {
             const result = await notifyAndRemove(sub.telegramUserId);
             if (result === 'skipped') {
-                // 管理员/群主：订阅标记过期但不踢出
                 console.log(`管理员/群主 ${sub.telegramUsername} 跳过踢出，仅标记过期`);
                 skipped++;
             } else {
                 kicked++;
             }
+        } else {
+            console.warn(`⚠️ [警告] 用户 ${sub.telegramUsername} (订单 ${sub._id}) telegramUserId 为空，无法发送通知和踢出，请人工排查`);
         }
         sub.status = 'expired';
         await sub.save();
@@ -69,6 +70,8 @@ async function handleReminders() {
                 sub.reminded = true;
                 await sub.save();
             }
+        } else {
+            console.warn(`⚠️ [警告] 用户 ${sub.telegramUsername} (订单 ${sub._id}) telegramUserId 为空，无法发送到期提醒，请人工排查`);
         }
     }
 

@@ -1,6 +1,7 @@
 const { chat: aiChat } = require('../services/ai');
+const config = require('../config');
 const Subscription = require('../models/subscription');
-const { inviteToGroup } = require('../services/membership');
+const { createInviteLink, sendInviteMessage, removeFromGroup } = require('../services/membership');
 
 const INLINE_KEYBOARD = {
     reply_markup: {
@@ -37,6 +38,7 @@ function registerHandlers(bot) {
     bot.on('text', (msg) => handleText(bot, msg));
     bot.on('document', (msg) => handleDocument(bot, msg));
     bot.on('callback_query', (query) => handleCallbackQuery(bot, query));
+    bot.on('new_chat_members', (msg) => handleNewChatMembers(bot, msg));
 }
 
 function handleChannelPost(bot, msg) {
@@ -165,6 +167,49 @@ async function handleCallbackQuery(bot, callbackQuery) {
 }
 
 /**
+ * 入群校验：有人通过邀请链接加入 VIP 群时，检查其 username 是否有对应的 active 订阅。
+ * 不匹配则自动踢出，防止邀请链接被转发给他人冒用。
+ */
+async function handleNewChatMembers(bot, msg) {
+    const chatId = msg.chat.id;
+    if (String(chatId) !== String(config.telegram.vipGroupId)) return;
+
+    const members = msg.new_chat_members || [];
+    for (const member of members) {
+        if (member.is_bot) continue;
+
+        const username = member.username ? `@${member.username}` : null;
+        const userId = member.id;
+
+        const sub = await Subscription.findOne({
+            status: 'active',
+            ...(username ? { telegramUsername: username } : { telegramUserId: userId }),
+        });
+
+        if (sub) {
+            // 匹配成功，回填 userId
+            if (!sub.telegramUserId) {
+                sub.telegramUserId = userId;
+                await sub.save();
+            }
+            console.log(`入群校验通过: ${username || userId}`);
+        } else {
+            // 无有效订阅，踢出
+            console.log(`入群校验失败: ${username || userId}，无有效订阅，踢出`);
+            try {
+                await removeFromGroup(userId);
+                await bot.sendMessage(userId,
+                    `⚠️ 您已被移出 VIP 群组。\n\n` +
+                    `未找到您的有效订阅记录，请先完成支付后再加入。`
+                ).catch(() => {});
+            } catch (error) {
+                console.error(`踢出未授权用户 ${username || userId} 失败:`, error.message);
+            }
+        }
+    }
+}
+
+/**
  * /start 命令: 记录用户 TG ID，绑定到已有订阅。
  * 如果有已支付但未发邀请的订阅，立即发送邀请链接。
  */
@@ -191,11 +236,23 @@ async function handleStart(bot, msg) {
         await sub.save();
     }
 
-    // 如果有已支付的 active 订阅但还没发过邀请链接
-    if (sub && sub.status === 'active' && sub.telegramUserId) {
+    // 已支付的 active 订阅 → 直接把邀请链接发给用户
+    if (sub && sub.status === 'active') {
+        let link = sub.inviteLink;
+        // 如果之前没生成过链接（或链接丢失），重新生成一个
+        if (!link) {
+            try {
+                link = await createInviteLink(username);
+                sub.inviteLink = link;
+                await sub.save();
+            } catch (error) {
+                console.error('生成邀请链接失败:', error.message);
+                bot.sendMessage(chatId, '邀请链接生成失败，请稍后再试或联系客服。');
+                return;
+            }
+        }
         try {
-            await inviteToGroup(userId);
-            bot.sendMessage(chatId, '已为您发送 VIP 群邀请链接，请查看上方消息。');
+            await sendInviteMessage(userId, link);
         } catch (error) {
             console.error('发送邀请失败:', error.message);
             bot.sendMessage(chatId, '邀请链接发送失败，请稍后再试或联系客服。');
@@ -206,7 +263,7 @@ async function handleStart(bot, msg) {
     if (sub && sub.status === 'pending') {
         bot.sendMessage(chatId,
             `已记录您的账号 ${username}。\n` +
-            `您有一个待支付的订单，支付后将自动发送 VIP 群邀请链接。`
+            `您有一个待支付的订单，支付确认后网页会直接显示邀请链接。`
         );
         return;
     }
@@ -214,7 +271,7 @@ async function handleStart(bot, msg) {
     bot.sendMessage(chatId,
         `欢迎！您的账号: ${username}\n\n` +
         `如需订阅 VIP 会员，请访问订阅页面完成支付。\n` +
-        `支付确认后，我会自动发送 VIP 群邀请链接给您。`
+        `支付确认后，网页会直接显示 VIP 群邀请链接。`
     );
 }
 

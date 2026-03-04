@@ -2,7 +2,7 @@ const { Router } = require('express');
 const config = require('../config');
 const Subscription = require('../models/subscription');
 const { pollPayment } = require('../services/tron');
-const { inviteToGroup } = require('../services/membership');
+const { createInviteLink } = require('../services/membership');
 
 const router = Router();
 
@@ -33,6 +33,7 @@ router.post('/api/subscribe', async (req, res) => {
                 status: 'active',
                 message: '您已是 VIP 会员',
                 expiresAt: existing.expiresAt,
+                inviteLink: existing.inviteLink || null,
             });
         }
 
@@ -130,6 +131,7 @@ router.get('/api/order/:id', async (req, res) => {
             telegramUsername: sub.telegramUsername,
             expiresAt: sub.expiresAt,
             txHash: sub.txHash,
+            inviteLink: sub.inviteLink || null,
         });
     } catch (error) {
         res.status(500).json({ error: '服务器内部错误' });
@@ -181,18 +183,17 @@ async function processPayment(sub) {
     freshSub.amount = payment.amount;
     freshSub.paidAt = now;
     freshSub.expiresAt = new Date(now.getTime() + config.schedule.subscriptionDays * 24 * 60 * 60 * 1000);
-    await freshSub.save();
 
-    if (freshSub.telegramUserId) {
-        try {
-            await inviteToGroup(freshSub.telegramUserId);
-            console.log(`已发送邀请链接: ${freshSub.telegramUsername}`);
-        } catch (error) {
-            console.error(`发送邀请链接失败: ${freshSub.telegramUsername}`, error.message);
-        }
-    } else {
-        console.log(`用户 ${freshSub.telegramUsername} 尚未与 Bot 交互，无法发送邀请。等待用户 /start`);
+    // 生成一次性邀请链接，存入订单，前端直接展示给用户
+    try {
+        const link = await createInviteLink(freshSub.telegramUsername);
+        freshSub.inviteLink = link;
+        console.log(`邀请链接已生成: ${freshSub.telegramUsername} -> ${link}`);
+    } catch (error) {
+        console.error(`生成邀请链接失败: ${freshSub.telegramUsername}`, error.message);
     }
+
+    await freshSub.save();
 }
 
 module.exports = router;

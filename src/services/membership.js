@@ -17,22 +17,30 @@ async function isGroupAdmin(telegramUserId) {
     }
 }
 
+const INVITE_EXPIRE_MINUTES = 30;
+
 /**
- * 生成一次性邀请链接并私信发送给用户
+ * 生成一次性邀请链接，限 1 人使用，30 分钟后过期
  */
-async function inviteToGroup(telegramUserId) {
+async function createInviteLink(telegramUsername) {
+    const expireDate = Math.floor(Date.now() / 1000) + INVITE_EXPIRE_MINUTES * 60;
     const link = await bot.createChatInviteLink(vipGroupId, {
         member_limit: 1,
-        name: `VIP-${telegramUserId}`,
+        expire_date: expireDate,
+        name: `VIP-${telegramUsername}`,
     });
+    return link.invite_link;
+}
 
+/**
+ * 通过 Bot 私信发送邀请链接给用户（备用通道，需用户先 /start Bot）
+ */
+async function sendInviteMessage(telegramUserId, inviteLink) {
     await bot.sendMessage(telegramUserId,
         `🎉 支付确认成功！\n\n` +
-        `点击下方链接加入 VIP 专属群：\n${link.invite_link}\n\n` +
+        `点击下方链接加入 VIP 专属群：\n${inviteLink}\n\n` +
         `该链接仅限一次使用，请尽快加入。`
     );
-
-    return link.invite_link;
 }
 
 /**
@@ -106,4 +114,4 @@ async function notifyAndRemove(telegramUserId) {
     return removeFromGroup(telegramUserId);
 }
 
-module.exports = { isGroupAdmin, inviteToGroup, removeFromGroup, sendReminder, notifyAndRemove };
+module.exports = { isGroupAdmin, createInviteLink, sendInviteMessage, removeFromGroup, sendReminder, notifyAndRemove };

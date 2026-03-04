@@ -11,6 +11,7 @@ const subscriptionSchema = new mongoose.Schema({
         default: 'pending',
         index: true,
     },
+    inviteLink: { type: String, default: null },
     paidAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null, index: true },
     reminded: { type: Boolean, default: false },
