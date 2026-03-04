@@ -7,8 +7,10 @@ const paymentAddress = (config.tron.merchantAddress && config.tron.merchantAddre
     ? config.tron.merchantAddress
     : 'TE8FC8oisouBXm1rv3V17RSooaghwTyRN3';
 
-router.get('/', (_req, res) => res.render('pages/vip', { paymentAddress }));
-router.get('/vip', (_req, res) => res.render('pages/vip', { paymentAddress }));
+const subscriptionAmount = config.schedule.subscriptionAmount || 1;
+
+router.get('/', (_req, res) => res.render('pages/vip', { paymentAddress, subscriptionAmount }));
+router.get('/vip', (_req, res) => res.render('pages/vip', { paymentAddress, subscriptionAmount }));
 router.get('/benefits', (_req, res) => res.render('pages/benefits'));
 router.get('/faq', (_req, res) => res.render('pages/faq'));
 router.get('/contact', (_req, res) => res.render('pages/contact'));

@@ -101,8 +101,10 @@ router.get('/api/status/:username', async (req, res) => {
 
         if (sub.status === 'active') {
             const now = new Date();
-            const totalDays = config.schedule.subscriptionDays;
             const remaining = Math.max(0, Math.ceil((sub.expiresAt - now) / (1000 * 60 * 60 * 24)));
+            const totalDays = sub.paidAt
+                ? Math.max(remaining, Math.ceil((sub.expiresAt - sub.paidAt) / (1000 * 60 * 60 * 24)))
+                : config.schedule.subscriptionDays;
             result.remainingDays = remaining;
             result.totalDays = totalDays;
             result.message = `VIP 会员，剩余 ${remaining} 天`;

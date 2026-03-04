@@ -92,7 +92,7 @@ const pageStyles = `
 <section class="subscription-section">
     <div class="subscription-info">
         <h1>加入Web3 VIP社群<br>解锁专属资源与服务</h1>
-        <p>支付50 USDT（TRC20）即可订阅1个月VIP会员，自动加入Telegram专属群聊，到期前3天提醒续费，到期自动移出，全程自动化无需人工干预。</p>
+        <p>支付<%= subscriptionAmount %> USDT（TRC20）即可订阅1个月VIP会员，自动加入Telegram专属群聊，到期前3天提醒续费，到期自动移出，全程自动化无需人工干预。</p>
         <ul class="feature-list">
             <li class="feature-item">
                 <div class="feature-icon">✓</div>
@@ -114,7 +114,7 @@ const pageStyles = `
     </div>
     <div class="subscription-card">
         <div class="card-header">
-            <div class="card-price">1 USDT <span>/ 月</span></div>
+            <div class="card-price"><%= subscriptionAmount %> USDT <span>/ 月</span></div>
             <div class="card-period">VIP会员订阅</div>
         </div>
         <div class="payment-address">
@@ -128,7 +128,7 @@ const pageStyles = `
                         <span id="addrText"><%= paymentAddress %></span>
                         <button type="button" class="copy-addr-btn" id="copyAddrBtn" data-addr="<%= paymentAddress %>">📋 复制地址</button>
                     </div>
-                    <p style="margin-top: 0.5rem; font-size: 0.75rem; color: #888;">扫码或复制地址转账 50 USDT (TRC20)</p>
+                    <p style="margin-top: 0.5rem; font-size: 0.75rem; color: #888;">扫码或复制地址转账 <%= subscriptionAmount %> USDT (TRC20)</p>
                 </div>
             </div>
         </div>
