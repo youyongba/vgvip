@@ -28,15 +28,6 @@ router.post('/api/subscribe', async (req, res) => {
             status: { $in: ['pending', 'active'] },
         });
 
-        if (existing && existing.status === 'active') {
-            return res.json({
-                status: 'active',
-                message: '您已是 VIP 会员',
-                expiresAt: existing.expiresAt,
-                inviteLink: existing.inviteLink || null,
-            });
-        }
-
         if (existing && existing.status === 'pending') {
             return res.json({
                 status: 'pending',
@@ -45,19 +36,29 @@ router.post('/api/subscribe', async (req, res) => {
             });
         }
 
+        const activeSub = await Subscription.findOne({
+            telegramUsername,
+            status: 'active',
+        });
+        const isRenewal = !!activeSub;
+
         const sub = await Subscription.create({
             telegramUsername,
             amount: config.schedule.subscriptionAmount,
             status: 'pending',
         });
 
+        const message = isRenewal
+            ? `续费订单已创建，当前会员到期时间 ${activeSub.expiresAt.toLocaleDateString('zh-CN')}，续费后将累加 ${config.schedule.subscriptionDays} 天`
+            : '订单已创建，请转账后等待确认';
+
         res.json({
             status: 'pending',
-            message: '订单已创建，请转账后等待确认',
+            message,
             orderId: sub._id,
+            isRenewal,
         });
 
-        // 后台轮询到账（不阻塞响应）
         processPayment(sub);
 
     } catch (error) {
@@ -77,8 +78,12 @@ router.get('/api/status/:username', async (req, res) => {
             username = '@' + username;
         }
 
-        const sub = await Subscription.findOne({ telegramUsername: username })
+        const subs = await Subscription.find({ telegramUsername: username })
             .sort({ createdAt: -1 });
+
+        const STATUS_PRIORITY = { active: 0, pending: 1, expired: 2, failed: 3 };
+        subs.sort((a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9));
+        const sub = subs[0] || null;
 
         if (!sub) {
             return res.json({ status: 'none', message: '未找到订阅记录' });
@@ -132,6 +137,7 @@ router.get('/api/order/:id', async (req, res) => {
             expiresAt: sub.expiresAt,
             txHash: sub.txHash,
             inviteLink: sub.inviteLink || null,
+            isRenewal: sub.isRenewal || false,
         });
     } catch (error) {
         res.status(500).json({ error: '服务器内部错误' });
@@ -178,19 +184,44 @@ async function processPayment(sub) {
     }
 
     const now = new Date();
+    const addDays = config.schedule.subscriptionDays * 24 * 60 * 60 * 1000;
+
+    // 检查是否有现存的 active 订阅（续费场景）
+    const activeSub = await Subscription.findOne({
+        telegramUsername: freshSub.telegramUsername,
+        status: 'active',
+        _id: { $ne: freshSub._id },
+    });
+
     freshSub.status = 'active';
     freshSub.txHash = payment.txHash;
     freshSub.amount = payment.amount;
     freshSub.paidAt = now;
-    freshSub.expiresAt = new Date(now.getTime() + config.schedule.subscriptionDays * 24 * 60 * 60 * 1000);
 
-    // 生成一次性邀请链接，存入订单，前端直接展示给用户
-    try {
-        const link = await createInviteLink(freshSub.telegramUsername);
-        freshSub.inviteLink = link;
-        console.log(`邀请链接已生成: ${freshSub.telegramUsername} -> ${link}`);
-    } catch (error) {
-        console.error(`生成邀请链接失败: ${freshSub.telegramUsername}`, error.message);
+    if (activeSub) {
+        // 续费：在原到期时间基础上累加
+        const baseTime = activeSub.expiresAt > now ? activeSub.expiresAt : now;
+        freshSub.expiresAt = new Date(baseTime.getTime() + addDays);
+        freshSub.telegramUserId = freshSub.telegramUserId || activeSub.telegramUserId;
+        freshSub.inviteLink = activeSub.inviteLink;
+        freshSub.isRenewal = true;
+
+        // 旧订阅标记为 expired（已被续费订单替代）
+        activeSub.status = 'expired';
+        await activeSub.save();
+
+        console.log(`续费成功: ${freshSub.telegramUsername}, 原到期 ${activeSub.expiresAt.toISOString()}, 新到期 ${freshSub.expiresAt.toISOString()}`);
+    } else {
+        // 新订阅：从当前时间算起
+        freshSub.expiresAt = new Date(now.getTime() + addDays);
+
+        try {
+            const link = await createInviteLink(freshSub.telegramUsername);
+            freshSub.inviteLink = link;
+            console.log(`邀请链接已生成: ${freshSub.telegramUsername} -> ${link}`);
+        } catch (error) {
+            console.error(`生成邀请链接失败: ${freshSub.telegramUsername}`, error.message);
+        }
     }
 
     await freshSub.save();

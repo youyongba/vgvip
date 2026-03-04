@@ -310,8 +310,18 @@ const pageStyles = `
                     clearInterval(timer);
                     pollingDiv.style.display = 'none';
                     successDiv.style.display = 'block';
-                    if (data.inviteLink) {
-                        document.getElementById('inviteLinkBtn').href = data.inviteLink;
+                    var titleEl = successDiv.querySelector('p');
+                    var inviteBtn = document.getElementById('inviteLinkBtn');
+                    var hintEl = inviteBtn.nextElementSibling;
+                    if (data.isRenewal) {
+                        titleEl.textContent = '续费成功！会员有效期已延长';
+                        inviteBtn.style.display = 'none';
+                        if (hintEl) hintEl.style.display = 'none';
+                    } else {
+                        titleEl.textContent = '支付成功！点击下方按钮加入 VIP 群';
+                        inviteBtn.style.display = 'inline-block';
+                        if (hintEl) hintEl.style.display = 'block';
+                        if (data.inviteLink) inviteBtn.href = data.inviteLink;
                     }
                     subscribeBtn.textContent = '确认支付并加入社群';
                     subscribeBtn.disabled = false;

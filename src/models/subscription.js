@@ -15,6 +15,7 @@ const subscriptionSchema = new mongoose.Schema({
     paidAt: { type: Date, default: null },
     expiresAt: { type: Date, default: null, index: true },
     reminded: { type: Boolean, default: false },
+    isRenewal: { type: Boolean, default: false },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Subscription', subscriptionSchema);
