@@ -28,24 +28,60 @@ const pageStyles = `
 .copy-addr-btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(60, 130, 246, 0.2); border: 1px solid rgba(60, 130, 246, 0.4); border-radius: 6px; color: #3c82f6; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
 .copy-addr-btn:hover { background: rgba(60, 130, 246, 0.3); }
 .copy-addr-btn.copied { color: #22c55e; border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.15); }
+.polling-spinner { width: 36px; height: 36px; border: 3px solid rgba(60,130,246,0.2); border-top-color: #3c82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.pay-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .telegram-input { width: 100%; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 1rem; color: #fff; margin-bottom: 2rem; outline: none; font-size: 1rem; }
 .telegram-input::placeholder { color: #666; }
 .pay-btn { width: 100%; background: linear-gradient(135deg, #3c82f6, #8338ec); border: none; border-radius: 8px; padding: 1.2rem; color: #fff; font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: opacity 0.3s; }
 .pay-btn:hover { opacity: 0.9; }
 .note { margin-top: 1.5rem; font-size: 0.85rem; color: #888; text-align: center; }
 .member-status { max-width: 1200px; margin: 4rem auto; padding: 0 5%; }
-.status-title { font-size: 1.8rem; text-align: center; margin-bottom: 2rem; }
+.status-title { font-size: 1.8rem; text-align: center; margin-bottom: 2rem; background: linear-gradient(135deg, #3c82f6, #8338ec); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .member-query { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 2rem; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 2rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
-.query-input { flex: 1; min-width: 280px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 1rem 1.2rem; color: #fff; outline: none; font-size: 1rem; }
+.query-input { flex: 1; min-width: 280px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 1rem 1.2rem; color: #fff; outline: none; font-size: 1rem; transition: border-color 0.2s; }
+.query-input:focus { border-color: rgba(60, 130, 246, 0.5); }
 .query-input::placeholder { color: #666; }
-.query-btn { min-width: 140px; background: linear-gradient(135deg, #3c82f6, #8338ec); border: none; border-radius: 8px; padding: 1rem 1.5rem; color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity 0.3s; }
-.query-btn:hover { opacity: 0.9; }
-.query-tips { flex: 100%; margin-top: 1rem; font-size: 0.85rem; color: #888; text-align: left; }
-.status-card { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 2rem; border: 1px solid rgba(255, 255, 255, 0.1); display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }
-.status-item { text-align: center; }
-.status-value { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.5rem; color: #3c82f6; }
-.status-label { color: #b0b0c0; font-size: 0.9rem; }
-@media (max-width: 768px) { .subscription-section { grid-template-columns: 1fr; gap: 2rem; } .subscription-info h1 { font-size: 2rem; } .status-card { grid-template-columns: 1fr; } .member-query { flex-direction: column; align-items: stretch; } .query-btn { width: 100%; } }
+.query-btn { min-width: 140px; background: linear-gradient(135deg, #3c82f6, #8338ec); border: none; border-radius: 8px; padding: 1rem 1.5rem; color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+.query-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.query-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.query-tips { flex: 100%; margin-top: 0.5rem; font-size: 0.8rem; color: #666; text-align: left; }
+.status-result { display: none; }
+.status-result.show { display: block; animation: fadeSlideIn 0.4s ease; }
+@keyframes fadeSlideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.status-banner { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 2rem 2.5rem; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1.5rem; }
+.status-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; }
+.status-avatar.active { background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.05)); border: 2px solid rgba(34,197,94,0.4); }
+.status-avatar.pending { background: linear-gradient(135deg, rgba(245,158,11,0.2), rgba(245,158,11,0.05)); border: 2px solid rgba(245,158,11,0.4); }
+.status-avatar.expired { background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.05)); border: 2px solid rgba(239,68,68,0.4); }
+.status-avatar.none { background: linear-gradient(135deg, rgba(107,114,128,0.2), rgba(107,114,128,0.05)); border: 2px solid rgba(107,114,128,0.4); }
+.status-info { flex: 1; min-width: 0; }
+.status-username { font-size: 1.1rem; font-weight: 600; color: #e0e0e0; margin-bottom: 0.3rem; }
+.status-badge { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.7rem; border-radius: 20px; }
+.status-badge.active { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+.status-badge.pending { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+.status-badge.expired { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.status-badge.none { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+.status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; }
+.status-card-item { background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 1.5rem; border: 1px solid rgba(255, 255, 255, 0.08); text-align: center; }
+.status-card-icon { font-size: 1.5rem; margin-bottom: 0.6rem; }
+.status-card-val { font-size: 1.5rem; font-weight: 700; color: #3c82f6; margin-bottom: 0.3rem; }
+.status-card-label { color: #888; font-size: 0.8rem; }
+.progress-wrap { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 1.5rem 2rem; border: 1px solid rgba(255, 255, 255, 0.1); }
+.progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; }
+.progress-title { font-size: 0.9rem; color: #b0b0c0; }
+.progress-percent { font-size: 0.9rem; font-weight: 600; color: #3c82f6; }
+.progress-bar { height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #3c82f6, #8338ec); transition: width 0.6s ease; }
+.progress-dates { display: flex; justify-content: space-between; margin-top: 0.6rem; font-size: 0.75rem; color: #666; }
+.status-actions { margin-top: 1.5rem; text-align: center; }
+.status-renew-btn { display: inline-block; background: linear-gradient(135deg, #3c82f6, #8338ec); border: none; border-radius: 8px; padding: 0.8rem 2rem; color: #fff; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: all 0.3s; text-decoration: none; }
+.status-renew-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.status-msg { text-align: center; color: #888; font-size: 0.85rem; margin-top: 1rem; }
+.status-tx { margin-top: 1rem; font-size: 0.8rem; color: #666; text-align: center; word-break: break-all; }
+.status-tx a { color: #3c82f6; text-decoration: none; }
+.status-tx a:hover { text-decoration: underline; }
+@media (max-width: 768px) { .subscription-section { grid-template-columns: 1fr; gap: 2rem; } .subscription-info h1 { font-size: 2rem; } .status-grid { grid-template-columns: 1fr; } .member-query { flex-direction: column; align-items: stretch; } .query-btn { width: 100%; } .status-banner { flex-direction: column; text-align: center; } }
 `;
 %>
 <%- include('../partials/head', { title: 'VIP会员订阅', pageStyles }) %>
@@ -94,60 +130,292 @@ const pageStyles = `
                 </div>
             </div>
         </div>
-        <input type="text" class="telegram-input" placeholder="请输入你的Telegram账号（如：@username）">
-        <button class="pay-btn">确认支付并加入社群</button>
-        <p class="note">支付后自动验证到账状态，5分钟内拉入VIP群聊</p>
+        <input type="text" class="telegram-input" id="tgInput" placeholder="请输入你的Telegram账号（如：@username）">
+        <button class="pay-btn" id="subscribeBtn">确认支付并加入社群</button>
+        <p class="note" id="subscribeMsg">支付后自动验证到账状态，确认后自动发送 VIP 群邀请链接</p>
+
+        <div id="paymentPolling" style="display:none; margin-top: 1.5rem; text-align: center;">
+            <div class="polling-spinner"></div>
+            <p id="pollingText" style="color: #b0b0c0; margin-top: 0.8rem;">正在检测链上到账，请稍候...</p>
+        </div>
+
+        <div id="paymentSuccess" style="display:none; margin-top: 1.5rem; text-align: center;">
+            <div style="font-size: 2rem;">🎉</div>
+            <p id="successText" style="color: #22c55e; margin-top: 0.5rem;">支付成功！请在 Telegram 中向 Bot 发送 /start 获取邀请链接。</p>
+        </div>
     </div>
 </section>
 
 <section class="member-status">
     <h2 class="status-title">我的会员状态</h2>
     <div class="member-query">
-        <input type="text" class="query-input" placeholder="请输入你的Telegram账号/ID（如@test123 或 123456789）">
-        <button class="query-btn">查询群状态</button>
-        <p class="query-tips">提示：1. 仅需输入Telegram账号，无需登录；2. 账号格式为@+用户名（如@web3vip）或纯数字ID；3. 需确保机器人是VIP群管理员</p>
+        <input type="text" class="query-input" id="queryInput" placeholder="请输入你的 Telegram 账号（如 @web3vip）">
+        <button class="query-btn" id="queryBtn">查询会员状态</button>
+        <p class="query-tips">输入 Telegram 用户名即可查询，无需登录</p>
     </div>
-    <div class="status-card">
-        <div class="status-item">
-            <div class="status-value">28天</div>
-            <div class="status-label">剩余会员时长</div>
+
+    <div class="status-result" id="statusResult">
+        <!-- 顶部横幅：头像 + 用户名 + 状态标签 -->
+        <div class="status-banner">
+            <div class="status-avatar" id="statusAvatar">👤</div>
+            <div class="status-info">
+                <div class="status-username" id="statusUsername">--</div>
+                <span class="status-badge none" id="statusBadge">未查询</span>
+            </div>
         </div>
-        <div class="status-item">
-            <div class="status-value">2025-12-30</div>
-            <div class="status-label">到期时间</div>
+
+        <!-- 三列数据卡片 -->
+        <div class="status-grid">
+            <div class="status-card-item">
+                <div class="status-card-icon">⏳</div>
+                <div class="status-card-val" id="statusRemaining">--</div>
+                <div class="status-card-label">剩余天数</div>
+            </div>
+            <div class="status-card-item">
+                <div class="status-card-icon">📅</div>
+                <div class="status-card-val" id="statusExpiry">--</div>
+                <div class="status-card-label">到期时间</div>
+            </div>
+            <div class="status-card-item">
+                <div class="status-card-icon">💰</div>
+                <div class="status-card-val" id="statusAmount">--</div>
+                <div class="status-card-label">支付金额</div>
+            </div>
         </div>
-        <div class="status-item">
-            <div class="status-value">@web3vip</div>
-            <div class="status-label">已加入的TG群</div>
+
+        <!-- 进度条 -->
+        <div class="progress-wrap" id="progressWrap" style="display:none;">
+            <div class="progress-header">
+                <span class="progress-title">会员有效期</span>
+                <span class="progress-percent" id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width:0%"></div>
+            </div>
+            <div class="progress-dates">
+                <span id="progressStart">--</span>
+                <span id="progressEnd">--</span>
+            </div>
         </div>
+
+        <!-- 交易哈希 -->
+        <div class="status-tx" id="statusTx" style="display:none;"></div>
+
+        <!-- 操作按钮 -->
+        <div class="status-actions" id="statusActions" style="display:none;">
+            <a href="#" class="status-renew-btn" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;">续费订阅</a>
+        </div>
+
+        <p class="status-msg" id="statusMsg"></p>
     </div>
 </section>
 
 <%- include('../partials/footer') %>
 <script>
 (function() {
-    var btn = document.getElementById('copyAddrBtn');
-    if (!btn) return;
-    btn.addEventListener('click', function() {
-        var addr = this.getAttribute('data-addr');
-        var fn = navigator.clipboard && navigator.clipboard.writeText
-            ? function() { return navigator.clipboard.writeText(addr); }
-            : function() {
-                var ta = document.createElement('textarea');
-                ta.value = addr;
-                ta.style.position = 'fixed';
-                ta.style.opacity = '0';
-                document.body.appendChild(ta);
-                ta.select();
-                try { document.execCommand('copy'); return Promise.resolve(); } catch (e) { return Promise.reject(e); }
-                finally { document.body.removeChild(ta); }
-            };
-        fn().then(function() {
-            btn.textContent = '✓ 已复制';
-            btn.classList.add('copied');
-            setTimeout(function() { btn.textContent = '📋 复制地址'; btn.classList.remove('copied'); }, 2000);
-        }).catch(function() { alert('复制失败，请手动选择地址复制'); });
+    /* -------- 复制地址 -------- */
+    var copyBtn = document.getElementById('copyAddrBtn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', function() {
+            var addr = this.getAttribute('data-addr');
+            var fn = navigator.clipboard && navigator.clipboard.writeText
+                ? function() { return navigator.clipboard.writeText(addr); }
+                : function() {
+                    var ta = document.createElement('textarea');
+                    ta.value = addr; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                    document.body.appendChild(ta); ta.select();
+                    try { document.execCommand('copy'); return Promise.resolve(); }
+                    catch(e) { return Promise.reject(e); }
+                    finally { document.body.removeChild(ta); }
+                };
+            fn().then(function() {
+                copyBtn.textContent = '✓ 已复制'; copyBtn.classList.add('copied');
+                setTimeout(function() { copyBtn.textContent = '📋 复制地址'; copyBtn.classList.remove('copied'); }, 2000);
+            }).catch(function() { alert('复制失败，请手动选择地址复制'); });
+        });
+    }
+
+    /* -------- 提交订阅 -------- */
+    var subscribeBtn = document.getElementById('subscribeBtn');
+    var tgInput = document.getElementById('tgInput');
+    var subscribeMsg = document.getElementById('subscribeMsg');
+    var pollingDiv = document.getElementById('paymentPolling');
+    var pollingText = document.getElementById('pollingText');
+    var successDiv = document.getElementById('paymentSuccess');
+
+    subscribeBtn.addEventListener('click', function() {
+        var username = tgInput.value.trim();
+        if (!username) { subscribeMsg.textContent = '⚠️ 请输入 Telegram 账号'; subscribeMsg.style.color = '#f59e0b'; return; }
+
+        subscribeBtn.disabled = true;
+        subscribeBtn.textContent = '提交中...';
+        subscribeMsg.textContent = '';
+
+        fetch('/api/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegramUsername: username })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.status === 'active') {
+                subscribeMsg.textContent = '🎉 ' + data.message;
+                subscribeMsg.style.color = '#22c55e';
+                subscribeBtn.textContent = '确认支付并加入社群';
+                subscribeBtn.disabled = false;
+                return;
+            }
+            if (data.status === 'pending') {
+                subscribeMsg.textContent = '订单已创建，正在监听链上到账...';
+                subscribeMsg.style.color = '#3c82f6';
+                pollingDiv.style.display = 'block';
+                pollOrder(data.orderId);
+            }
+            if (data.error) {
+                subscribeMsg.textContent = '❌ ' + data.error;
+                subscribeMsg.style.color = '#ef4444';
+                subscribeBtn.textContent = '确认支付并加入社群';
+                subscribeBtn.disabled = false;
+            }
+        })
+        .catch(function() {
+            subscribeMsg.textContent = '❌ 网络错误，请稍后重试';
+            subscribeMsg.style.color = '#ef4444';
+            subscribeBtn.textContent = '确认支付并加入社群';
+            subscribeBtn.disabled = false;
+        });
     });
+
+    function pollOrder(orderId) {
+        var elapsed = 0;
+        var interval = 5000;
+        var maxTime = 16 * 60 * 1000;
+        var timer = setInterval(function() {
+            elapsed += interval;
+            if (elapsed > maxTime) {
+                clearInterval(timer);
+                pollingText.textContent = '⏰ 检测超时，请稍后在下方查询会员状态';
+                subscribeBtn.textContent = '确认支付并加入社群';
+                subscribeBtn.disabled = false;
+                return;
+            }
+            fetch('/api/order/' + orderId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.status === 'active') {
+                    clearInterval(timer);
+                    pollingDiv.style.display = 'none';
+                    successDiv.style.display = 'block';
+                    subscribeBtn.textContent = '确认支付并加入社群';
+                    subscribeBtn.disabled = false;
+                } else if (data.status === 'failed') {
+                    clearInterval(timer);
+                    pollingText.textContent = '❌ 订单已超时失效，如已支付请联系客服';
+                    subscribeBtn.textContent = '确认支付并加入社群';
+                    subscribeBtn.disabled = false;
+                }
+            })
+            .catch(function() {});
+        }, interval);
+    }
+
+    /* -------- 查询会员状态 -------- */
+    var queryBtn = document.getElementById('queryBtn');
+    var queryInput = document.getElementById('queryInput');
+    var statusResult = document.getElementById('statusResult');
+
+    queryInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') queryBtn.click();
+    });
+
+    queryBtn.addEventListener('click', function() {
+        var username = queryInput.value.trim();
+        if (!username) { queryInput.focus(); return; }
+
+        queryBtn.disabled = true;
+        queryBtn.textContent = '查询中...';
+
+        fetch('/api/status/' + encodeURIComponent(username))
+        .then(function(r) { return r.json(); })
+        .then(function(data) { renderStatus(data); })
+        .catch(function() {
+            renderStatus({ status: 'error', telegramUsername: username, message: '网络错误，请稍后重试' });
+        })
+        .finally(function() {
+            queryBtn.disabled = false;
+            queryBtn.textContent = '查询会员状态';
+        });
+    });
+
+    function renderStatus(d) {
+        statusResult.classList.add('show');
+
+        var avatar = document.getElementById('statusAvatar');
+        var badge = document.getElementById('statusBadge');
+        var uname = document.getElementById('statusUsername');
+        var remaining = document.getElementById('statusRemaining');
+        var expiry = document.getElementById('statusExpiry');
+        var amount = document.getElementById('statusAmount');
+        var progressWrap = document.getElementById('progressWrap');
+        var statusTx = document.getElementById('statusTx');
+        var statusActions = document.getElementById('statusActions');
+        var statusMsg = document.getElementById('statusMsg');
+
+        uname.textContent = d.telegramUsername || '--';
+
+        var stMap = {
+            active:  { icon: '👑', label: 'VIP 有效',  cls: 'active' },
+            pending: { icon: '⏳', label: '待支付',    cls: 'pending' },
+            expired: { icon: '⌛', label: '已到期',    cls: 'expired' },
+            failed:  { icon: '❌', label: '已失效',    cls: 'expired' },
+            none:    { icon: '👤', label: '无记录',    cls: 'none' },
+            error:   { icon: '⚠️', label: '查询失败',  cls: 'none' }
+        };
+        var st = stMap[d.status] || stMap.none;
+        avatar.textContent = st.icon;
+        avatar.className = 'status-avatar ' + st.cls;
+        badge.textContent = st.label;
+        badge.className = 'status-badge ' + st.cls;
+
+        if (d.status === 'active') {
+            remaining.textContent = d.remainingDays + ' 天';
+            expiry.textContent = fmtDate(d.expiresAt);
+            amount.textContent = d.amount ? d.amount + ' USDT' : '--';
+
+            progressWrap.style.display = 'block';
+            var total = d.totalDays || 30;
+            var used = total - d.remainingDays;
+            var pct = Math.min(100, Math.round((used / total) * 100));
+            document.getElementById('progressPercent').textContent = d.remainingDays + '/' + total + ' 天';
+            document.getElementById('progressFill').style.width = (100 - pct) + '%';
+            document.getElementById('progressStart').textContent = d.paidAt ? fmtDate(d.paidAt) : '--';
+            document.getElementById('progressEnd').textContent = fmtDate(d.expiresAt);
+
+            statusActions.style.display = 'none';
+        } else {
+            remaining.textContent = '--';
+            expiry.textContent = '--';
+            amount.textContent = d.amount ? d.amount + ' USDT' : '--';
+            progressWrap.style.display = 'none';
+
+            statusActions.style.display = (d.status === 'expired' || d.status === 'none') ? 'block' : 'none';
+        }
+
+        if (d.txHash) {
+            statusTx.style.display = 'block';
+            statusTx.innerHTML = '交易哈希：<a href="https://tronscan.org/#/transaction/' + d.txHash + '" target="_blank">' + d.txHash.slice(0, 16) + '...' + d.txHash.slice(-8) + '</a>';
+        } else {
+            statusTx.style.display = 'none';
+        }
+
+        statusMsg.textContent = d.message || '';
+    }
+
+    function fmtDate(s) {
+        if (!s) return '--';
+        var d = new Date(s);
+        return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+    }
 })();
 </script>
 </body>

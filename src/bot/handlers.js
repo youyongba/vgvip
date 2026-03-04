@@ -1,4 +1,6 @@
 const { chat: aiChat } = require('../services/ai');
+const Subscription = require('../models/subscription');
+const { inviteToGroup } = require('../services/membership');
 
 const INLINE_KEYBOARD = {
     reply_markup: {
@@ -49,6 +51,11 @@ async function handleText(bot, msg) {
     const chatId = msg.chat.id;
     const text = msg.text.replace(/@tempTestBot2_10241222_bot/g, '');
     const paras = msg.text.trim().split(' ').filter(Boolean);
+
+    if (text.includes('/start')) {
+        await handleStart(bot, msg);
+        return;
+    }
 
     if (text.includes('/help')) {
         bot.sendMessage(chatId, HELP_TEXT, INLINE_KEYBOARD);
@@ -155,6 +162,60 @@ async function handleCallbackQuery(bot, callbackQuery) {
             }
             break;
     }
+}
+
+/**
+ * /start 命令: 记录用户 TG ID，绑定到已有订阅。
+ * 如果有已支付但未发邀请的订阅，立即发送邀请链接。
+ */
+async function handleStart(bot, msg) {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const username = msg.from.username ? `@${msg.from.username}` : null;
+
+    if (!username) {
+        bot.sendMessage(chatId,
+            '欢迎！请先在 Telegram 设置中设置用户名（username），然后再试。'
+        );
+        return;
+    }
+
+    // 绑定 telegramUserId 到订阅记录
+    const sub = await Subscription.findOne({
+        telegramUsername: username,
+        status: { $in: ['pending', 'active'] },
+    }).sort({ createdAt: -1 });
+
+    if (sub && !sub.telegramUserId) {
+        sub.telegramUserId = userId;
+        await sub.save();
+    }
+
+    // 如果有已支付的 active 订阅但还没发过邀请链接
+    if (sub && sub.status === 'active' && sub.telegramUserId) {
+        try {
+            await inviteToGroup(userId);
+            bot.sendMessage(chatId, '已为您发送 VIP 群邀请链接，请查看上方消息。');
+        } catch (error) {
+            console.error('发送邀请失败:', error.message);
+            bot.sendMessage(chatId, '邀请链接发送失败，请稍后再试或联系客服。');
+        }
+        return;
+    }
+
+    if (sub && sub.status === 'pending') {
+        bot.sendMessage(chatId,
+            `已记录您的账号 ${username}。\n` +
+            `您有一个待支付的订单，支付后将自动发送 VIP 群邀请链接。`
+        );
+        return;
+    }
+
+    bot.sendMessage(chatId,
+        `欢迎！您的账号: ${username}\n\n` +
+        `如需订阅 VIP 会员，请访问订阅页面完成支付。\n` +
+        `支付确认后，我会自动发送 VIP 群邀请链接给您。`
+    );
 }
 
 module.exports = { registerHandlers };
