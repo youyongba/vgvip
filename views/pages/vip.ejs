@@ -120,9 +120,7 @@ const pageStyles = `
         <div class="payment-address">
             <label>TRC20收款地址</label>
             <div class="payment-address-wrap">
-                <div class="payment-qr">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=<%= encodeURIComponent(paymentAddress) %>" alt="扫码获取收款地址" title="扫码获取收款地址">
-                </div>
+                <div class="payment-qr" id="qrcode"></div>
                 <div class="payment-address-text">
                     <div class="copy-addr-row">
                         <span id="addrText"><%= paymentAddress %></span>
@@ -215,8 +213,25 @@ const pageStyles = `
 </section>
 
 <%- include('../partials/footer') %>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 (function() {
+    // 生成二维码
+    var qrContainer = document.getElementById('qrcode');
+    if (qrContainer) {
+        new QRCode(qrContainer, {
+            text: "<%= paymentAddress %>",
+            width: 140,
+            height: 140,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+        });
+        // 为生成的 canvas 或 img 增加居中样式
+        var qrEl = qrContainer.querySelector('canvas') || qrContainer.querySelector('img');
+        if(qrEl) qrEl.style.margin = '0 auto';
+    }
+
     /* -------- 复制地址 -------- */
     var copyBtn = document.getElementById('copyAddrBtn');
     if (copyBtn) {
