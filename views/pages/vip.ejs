@@ -110,6 +110,7 @@ const pageStyles = `
         <div class="tech-stack">
             <div class="tech-item"><img src="/assets/tron-logo.svg" alt="TRC20"><span>TRC20</span></div>
             <div class="tech-item"><img src="https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/telegram.svg" alt="Telegram"><span>Telegram</span></div>
+            <button type="button" id="testDbBtn" style="margin-left: auto; padding: 0.4rem 0.8rem; background: rgba(34,197,94,0.2); border: 1px solid rgba(34,197,94,0.4); border-radius: 6px; color: #22c55e; font-size: 0.8rem; cursor: pointer;">测试数据库</button>
         </div>
     </div>
     <div class="subscription-card">
@@ -230,6 +231,28 @@ const pageStyles = `
         // 为生成的 canvas 或 img 增加居中样式
         var qrEl = qrContainer.querySelector('canvas') || qrContainer.querySelector('img');
         if(qrEl) qrEl.style.margin = '0 auto';
+    }
+
+    /* -------- 测试数据库 -------- */
+    var testDbBtn = document.getElementById('testDbBtn');
+    if (testDbBtn) {
+        testDbBtn.addEventListener('click', function() {
+            var oldText = this.textContent;
+            this.textContent = '测试中...';
+            this.disabled = true;
+            fetch('/api/test-db')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    alert(data.message);
+                })
+                .catch(function(err) {
+                    alert('网络或服务异常：' + err.message);
+                })
+                .finally(function() {
+                    testDbBtn.textContent = oldText;
+                    testDbBtn.disabled = false;
+                });
+        });
     }
 
     /* -------- 复制地址 -------- */

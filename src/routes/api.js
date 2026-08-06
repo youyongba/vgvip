@@ -7,6 +7,24 @@ const { createInviteLink } = require('../services/membership');
 const router = Router();
 
 /**
+ * GET /api/test-db
+ * 测试数据库连接状态
+ */
+router.get('/api/test-db', async (req, res) => {
+    try {
+        // readyState: 0: disconnected, 1: connected, 2: connecting, 3: disconnecting
+        const state = Subscription.db.readyState;
+        if (state === 1) {
+            res.json({ success: true, message: '✅ 数据库连接正常！' });
+        } else {
+            res.json({ success: false, message: `❌ 数据库未连接 (状态码: ${state})` });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, message: `❌ 数据库错误: ${error.message}` });
+    }
+});
+
+/**
  * POST /api/subscribe
  * body: { telegramUsername: "@xxx" }
  * 创建 pending 订单，后台启动轮询到账

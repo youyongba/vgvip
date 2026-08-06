@@ -63,7 +63,7 @@ MERCHANT_TRON_PRIVATE_KEY=你的钱包私钥(可选，用于签名验证)
 SCHEDULE_CRON=0 0 * * *  # 每天凌晨执行检查
 REMIND_BEFORE_DAYS=3     # 提前3天提醒到期
 SUBSCRIPTION_DAYS=30     # 订阅有效期30天
-SUBSCRIPTION_AMOUNT=50   # 订阅金额(USDT)
+SUBSCRIPTION_AMOUNT=10   # 订阅金额(USDT)
 ```
 *(注：为避免 Node.js 的 IPv6 解析问题，建议 MongoDB URI 中使用 `127.0.0.1` 替代 `localhost`)*
 
