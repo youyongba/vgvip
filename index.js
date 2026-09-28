@@ -7,7 +7,7 @@ async function start() {
     await connectDB();
     startScheduler();
 
-    app.listen(config.port, () => {
+    app.listen(config.port, '0.0.0.0', () => {
         console.log(`服务器已在 http://localhost:${config.port} 上运行`);
         console.log(`Webhook 地址: ${config.webhookUrl}/webhook/***`);
     });
