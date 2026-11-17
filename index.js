@@ -2,10 +2,12 @@ const app = require('./src/app');
 const config = require('./src/config');
 const { connectDB } = require('./src/services/db');
 const { startScheduler } = require('./src/services/scheduler');
+const { startPaymentWorker } = require('./src/services/payments');
 
 async function start() {
     await connectDB();
     startScheduler();
+    startPaymentWorker();
 
     app.listen(config.port, '0.0.0.0', () => {
         console.log(`服务器已在 http://localhost:${config.port} 上运行`);

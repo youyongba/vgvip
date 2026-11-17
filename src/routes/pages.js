@@ -2,10 +2,7 @@ const { Router } = require('express');
 const config = require('../config');
 
 const router = Router();
-const PLACEHOLDER = '你的商家TRC20收款地址';
-const paymentAddress = (config.tron.merchantAddress && config.tron.merchantAddress !== PLACEHOLDER)
-    ? config.tron.merchantAddress
-    : 'TE8FC8oisouBXm1rv3V17RSooaghwTyRN3';
+const paymentAddress = config.tron.merchantAddress;
 
 const subscriptionAmount = config.schedule.subscriptionAmount || 1;
 

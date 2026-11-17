@@ -92,7 +92,7 @@ const pageStyles = `
 <section class="subscription-section">
     <div class="subscription-info">
         <h1>加入Web3 VIP社群<br>解锁专属资源与服务</h1>
-        <p>支付<%= subscriptionAmount %> USDT（TRC20）即可订阅1个月VIP会员，自动加入Telegram专属群聊，到期前3天提醒续费，到期自动移出，全程自动化无需人工干预。</p>
+        <p>VIP基础月费为<%= subscriptionAmount %> USDT（TRC20）。每单会加上唯一的小数识别金额，请以订单显示的精确金额转账，订阅有效期为30天。</p>
         <ul class="feature-list">
             <li class="feature-item">
                 <div class="feature-icon">✓</div>
@@ -116,9 +116,9 @@ const pageStyles = `
     <div class="subscription-card">
         <div class="card-header">
             <div class="card-price"><%= subscriptionAmount %> USDT <span>/ 月</span></div>
-            <div class="card-period">VIP会员订阅</div>
+            <div class="card-period">VIP基础月费，实际付款金额以订单为准</div>
         </div>
-        <div class="payment-address">
+        <div class="payment-address" id="paymentAddress" style="display:none;">
             <label>TRC20收款地址</label>
             <div class="payment-address-wrap">
                 <div class="payment-qr" id="qrcode"></div>
@@ -127,13 +127,15 @@ const pageStyles = `
                         <span id="addrText"><%= paymentAddress %></span>
                         <button type="button" class="copy-addr-btn" id="copyAddrBtn" data-addr="<%= paymentAddress %>">复制地址</button>
                     </div>
-                    <p style="margin-top: 0.5rem; font-size: 0.75rem; color: #888;">扫码或复制地址转账 <%= subscriptionAmount %> USDT (TRC20)</p>
+                    <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #fff;">精确转账金额：<strong id="orderAmount"><%= subscriptionAmount %></strong> USDT (TRC20)</p>
+                    <p style="margin-top: 0.5rem; font-size: 0.8rem; color: #f59e0b;">每单金额不同，请勿取整、分笔或重复转账。手续费不能从到账金额中扣除。</p>
+                    <p id="orderDeadline" style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;"></p>
                 </div>
             </div>
         </div>
         <input type="text" class="telegram-input" id="tgInput" placeholder="请输入你的Telegram账号（如：@username）">
-        <button class="pay-btn" id="subscribeBtn">确认支付并加入社群</button>
-        <p class="note" id="subscribeMsg">支付后自动验证到账状态，确认后自动发送 VIP 群邀请链接</p>
+        <button class="pay-btn" id="subscribeBtn">创建订单并获取收款地址</button>
+        <p class="note" id="subscribeMsg">请先创建订单，再转账；支付后会自动验证到账</p>
 
         <div id="paymentPolling" style="display:none; margin-top: 1.5rem; text-align: center;">
             <div class="polling-spinner"></div>
@@ -219,18 +221,28 @@ const pageStyles = `
 (function() {
     // 生成二维码
     var qrContainer = document.getElementById('qrcode');
-    if (qrContainer) {
-        new QRCode(qrContainer, {
-            text: "<%= paymentAddress %>",
+    function renderQr(address) {
+        if (!qrContainer) return;
+        qrContainer.textContent = '';
+        if (typeof QRCode === 'undefined') {
+            qrContainer.textContent = '二维码不可用，请复制地址';
+            return;
+        }
+        try {
+            new QRCode(qrContainer, {
+            text: address,
             width: 140,
             height: 140,
             colorDark: "#000000",
             colorLight: "#ffffff",
             correctLevel: QRCode.CorrectLevel.M
-        });
+            });
         // 为生成的 canvas 或 img 增加居中样式
         var qrEl = qrContainer.querySelector('canvas') || qrContainer.querySelector('img');
-        if(qrEl) qrEl.style.margin = '0 auto';
+            if(qrEl) qrEl.style.margin = '0 auto';
+        } catch (error) {
+            qrContainer.textContent = '二维码不可用，请复制地址';
+        }
     }
 
     /* -------- 测试数据库 -------- */
@@ -284,95 +296,164 @@ const pageStyles = `
     var pollingDiv = document.getElementById('paymentPolling');
     var pollingText = document.getElementById('pollingText');
     var successDiv = document.getElementById('paymentSuccess');
+    var orderTimer = null;
+    var orderGeneration = 0;
+    var memoryOrders = {};
+
+    function savedOrder(username) {
+        try { return JSON.parse(localStorage.getItem('vip-order-' + username)) || memoryOrders[username]; }
+        catch (error) { return memoryOrders[username]; }
+    }
+
+    function saveOrder(username, order) {
+        memoryOrders[username] = order;
+        try {
+            localStorage.setItem('vip-order-' + username, JSON.stringify(order));
+            localStorage.setItem('vip-last-username', username);
+        } catch (error) {
+            subscribeMsg.textContent = '浏览器无法保存订单，请保持此页面打开；关闭后可通过机器人 /start 查询已支付会员';
+        }
+    }
 
     subscribeBtn.addEventListener('click', function() {
-        var username = tgInput.value.trim();
-        if (!username) { subscribeMsg.textContent = '⚠️ 请输入 Telegram 账号'; subscribeMsg.style.color = '#f59e0b'; return; }
+        var username = '@' + tgInput.value.trim().replace(/^@/, '').toLowerCase();
+        if (!/^@[a-z][a-z0-9_]{4,31}$/.test(username)) { subscribeMsg.textContent = '请输入有效的 Telegram 用户名'; subscribeMsg.style.color = '#f59e0b'; return; }
 
         subscribeBtn.disabled = true;
         subscribeBtn.textContent = '提交中...';
         subscribeMsg.textContent = '';
+        orderGeneration++;
+        if (orderTimer) clearInterval(orderTimer);
+        successDiv.style.display = 'none';
+        document.getElementById('paymentAddress').style.display = 'none';
+        var previous = savedOrder(username);
 
         fetch('/api/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telegramUsername: username })
+            body: JSON.stringify({ telegramUsername: username, orderToken: previous && previous.token })
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.status === 'active') {
                 subscribeMsg.textContent = '🎉 ' + data.message;
                 subscribeMsg.style.color = '#22c55e';
-                subscribeBtn.textContent = '确认支付并加入社群';
+                subscribeBtn.textContent = '创建订单并获取收款地址';
                 subscribeBtn.disabled = false;
                 return;
             }
             if (data.status === 'pending') {
-                subscribeMsg.textContent = '订单已创建，正在监听链上到账...';
+                saveOrder(username, { id: data.orderId, token: data.orderToken });
+                document.getElementById('orderAmount').textContent = data.amount;
+                document.getElementById('addrText').textContent = data.paymentAddress;
+                copyBtn.setAttribute('data-addr', data.paymentAddress);
+                renderQr(data.paymentAddress);
+                document.getElementById('orderDeadline').textContent = '付款截止：' + new Date(data.paymentDeadline).toLocaleString();
+                document.getElementById('paymentAddress').style.display = 'block';
+                subscribeMsg.textContent = '请按 ' + data.amount + ' USDT 精确转账，勿取整';
                 subscribeMsg.style.color = '#3c82f6';
                 pollingDiv.style.display = 'block';
-                pollOrder(data.orderId);
+                subscribeBtn.textContent = '等待到账确认';
+                pollOrder(data.orderId, data.orderToken);
             }
             if (data.error) {
                 subscribeMsg.textContent = '❌ ' + data.error;
                 subscribeMsg.style.color = '#ef4444';
-                subscribeBtn.textContent = '确认支付并加入社群';
+                subscribeBtn.textContent = '创建订单并获取收款地址';
                 subscribeBtn.disabled = false;
             }
         })
         .catch(function() {
             subscribeMsg.textContent = '❌ 网络错误，请稍后重试';
             subscribeMsg.style.color = '#ef4444';
-            subscribeBtn.textContent = '确认支付并加入社群';
+            subscribeBtn.textContent = '创建订单并获取收款地址';
             subscribeBtn.disabled = false;
         });
     });
 
-    function pollOrder(orderId) {
+    function pollOrder(orderId, token) {
+        if (orderTimer) clearInterval(orderTimer);
+        var generation = ++orderGeneration;
         var elapsed = 0;
         var interval = 5000;
-        var maxTime = 16 * 60 * 1000;
-        var timer = setInterval(function() {
+        var maxTime = 25 * 60 * 60 * 1000;
+        var inFlight = false;
+        orderTimer = setInterval(function() {
+            if (inFlight) return;
             elapsed += interval;
             if (elapsed > maxTime) {
-                clearInterval(timer);
+                clearInterval(orderTimer);
                 pollingText.textContent = '⏰ 检测超时，请稍后在下方查询会员状态';
-                subscribeBtn.textContent = '确认支付并加入社群';
+                subscribeBtn.textContent = '创建订单并获取收款地址';
                 subscribeBtn.disabled = false;
                 return;
             }
-            fetch('/api/order/' + orderId)
-            .then(function(r) { return r.json(); })
+            inFlight = true;
+            fetch('/api/order/' + orderId, { headers: { Authorization: 'Bearer ' + token } })
+            .then(function(r) {
+                if (generation !== orderGeneration) return {};
+                if (r.status === 403 || r.status === 404) {
+                    clearInterval(orderTimer);
+                    subscribeBtn.disabled = false;
+                    document.getElementById('paymentAddress').style.display = 'none';
+                }
+                return r.json();
+            })
             .then(function(data) {
+                if (generation !== orderGeneration) return;
+                if (data.error) {
+                    pollingText.textContent = data.error;
+                    return;
+                }
+                if (data.paymentDeadline && Date.now() >= new Date(data.paymentDeadline).getTime()) {
+                    document.getElementById('paymentAddress').style.display = 'none';
+                }
                 if (data.status === 'active') {
-                    clearInterval(timer);
+                    subscribeMsg.textContent = '已确认到账，请勿再次转账';
+                    subscribeMsg.style.color = '#22c55e';
+                    if (data.inviteLink) clearInterval(orderTimer);
                     pollingDiv.style.display = 'none';
+                    document.getElementById('paymentAddress').style.display = 'none';
                     successDiv.style.display = 'block';
                     var titleEl = successDiv.querySelector('p');
                     var inviteBtn = document.getElementById('inviteLinkBtn');
                     var hintEl = inviteBtn.nextElementSibling;
-                    if (data.isRenewal) {
-                        titleEl.textContent = '续费成功！会员有效期已延长';
-                        inviteBtn.style.display = 'none';
-                        if (hintEl) hintEl.style.display = 'none';
-                    } else {
-                        titleEl.textContent = '支付成功！点击下方按钮加入 VIP 群';
-                        inviteBtn.style.display = 'inline-block';
-                        if (hintEl) hintEl.style.display = 'block';
-                        if (data.inviteLink) inviteBtn.href = data.inviteLink;
-                    }
-                    subscribeBtn.textContent = '确认支付并加入社群';
+                    titleEl.textContent = data.inviteLink
+                        ? (data.isRenewal ? '续费成功！会员有效期已延长' : '支付成功！点击下方按钮加入 VIP 群')
+                        : '支付成功，正在重试生成邀请链接；也可向机器人发送 /start';
+                    inviteBtn.style.display = data.inviteLink ? 'inline-block' : 'none';
+                    if (hintEl) hintEl.style.display = data.inviteLink ? 'block' : 'none';
+                    if (data.inviteLink) inviteBtn.href = data.inviteLink;
+                    subscribeBtn.textContent = '创建订单并获取收款地址';
                     subscribeBtn.disabled = false;
-                } else if (data.status === 'failed') {
-                    clearInterval(timer);
-                    pollingText.textContent = '❌ 订单已超时失效，如已支付请联系客服';
-                    subscribeBtn.textContent = '确认支付并加入社群';
+                } else if (data.status === 'reconciling') {
+                    pollingText.textContent = '付款窗口已结束，后台继续核对到账，请勿再次转账';
+                    document.getElementById('paymentAddress').style.display = 'none';
+                } else if (data.status === 'manual_review' || data.status === 'failed' || data.status === 'expired') {
+                    clearInterval(orderTimer);
+                    document.getElementById('paymentAddress').style.display = 'none';
+                    pollingText.textContent = data.status === 'expired' ? '会员已到期，可重新订阅'
+                        : '订单需要人工核对，已付款请联系客服并提供交易哈希，不要重复转账';
+                    subscribeBtn.textContent = '创建订单并获取收款地址';
                     subscribeBtn.disabled = false;
-                }
+                } else if (data.checkingDelayed) pollingText.textContent = '查账服务暂时异常，后台会重试，请勿重复转账';
+                else pollingText.textContent = '正在核对链上确认，请按订单金额付款后等待';
             })
-            .catch(function() {});
+            .catch(function() {
+                if (generation === orderGeneration) pollingText.textContent = '网络暂时异常，正在重试，请勿重复转账';
+            })
+            .finally(function() { inFlight = false; });
         }, interval);
     }
+    try {
+        var lastUsername = localStorage.getItem('vip-last-username');
+        var lastOrder = lastUsername && savedOrder(lastUsername);
+        if (lastOrder && lastOrder.id && lastOrder.token) {
+            tgInput.value = lastUsername;
+            pollingDiv.style.display = 'block';
+            pollOrder(lastOrder.id, lastOrder.token);
+        }
+    } catch (error) {}
 
     /* -------- 查询会员状态 -------- */
     var queryBtn = document.getElementById('queryBtn');
@@ -421,6 +502,8 @@ const pageStyles = `
         var stMap = {
             active:  { icon: '👑', label: 'VIP 有效',  cls: 'active' },
             pending: { icon: '⏳', label: '待支付',    cls: 'pending' },
+            reconciling: { icon: '⏳', label: '核对到账', cls: 'pending' },
+            manual_review: { icon: '⚠️', label: '人工核对', cls: 'pending' },
             expired: { icon: '⌛', label: '已到期',    cls: 'expired' },
             failed:  { icon: '❌', label: '已失效',    cls: 'expired' },
             none:    { icon: '👤', label: '无记录',    cls: 'none' },

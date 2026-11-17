@@ -1,8 +1,8 @@
 const { Router } = require('express');
 const config = require('../config');
 const Subscription = require('../models/subscription');
-const { pollPayment } = require('../services/tron');
-const { createInviteLink } = require('../services/membership');
+const { createOrder, normalizeUsername, ownsOrder, formatAmount } = require('../services/payments');
+const { ensureInviteLink } = require('../services/membership');
 
 const router = Router();
 
@@ -31,57 +31,20 @@ router.get('/api/test-db', async (req, res) => {
  */
 router.post('/api/subscribe', async (req, res) => {
     try {
-        let { telegramUsername } = req.body;
-        if (!telegramUsername) {
-            return res.status(400).json({ error: '请提供 Telegram 账号' });
-        }
-
-        telegramUsername = telegramUsername.trim();
-        if (!telegramUsername.startsWith('@')) {
-            telegramUsername = '@' + telegramUsername;
-        }
-
-        const existing = await Subscription.findOne({
-            telegramUsername,
-            status: { $in: ['pending', 'active'] },
-        });
-
-        if (existing && existing.status === 'pending') {
-            return res.json({
-                status: 'pending',
-                message: '订单已创建，等待支付确认中...',
-                orderId: existing._id,
-            });
-        }
-
-        const activeSub = await Subscription.findOne({
-            telegramUsername,
-            status: 'active',
-        });
-        const isRenewal = !!activeSub;
-
-        const sub = await Subscription.create({
-            telegramUsername,
-            amount: config.schedule.subscriptionAmount,
-            status: 'pending',
-        });
-
-        const message = isRenewal
-            ? `续费订单已创建，当前会员到期时间 ${activeSub.expiresAt.toLocaleDateString('zh-CN')}，续费后将累加 ${config.schedule.subscriptionDays} 天`
-            : '订单已创建，请转账后等待确认';
-
+        const username = normalizeUsername(req.body.telegramUsername);
+        const { order, token } = await createOrder(username, req.body.orderToken);
         res.json({
             status: 'pending',
-            message,
-            orderId: sub._id,
-            isRenewal,
+            message: '请在付款截止前按订单精确金额转账，不要取整',
+            orderId: order._id,
+            orderToken: token,
+            amount: formatAmount(order.expectedRaw),
+            paymentAddress: order.paymentAddress,
+            paymentDeadline: order.paymentDeadline,
         });
-
-        processPayment(sub);
-
     } catch (error) {
         console.error('创建订阅出错:', error);
-        res.status(500).json({ error: '服务器内部错误' });
+        res.status(error.status || 500).json({ error: error.status ? error.message : '服务器内部错误' });
     }
 });
 
@@ -91,15 +54,12 @@ router.post('/api/subscribe', async (req, res) => {
  */
 router.get('/api/status/:username', async (req, res) => {
     try {
-        let username = req.params.username.trim();
-        if (!username.startsWith('@')) {
-            username = '@' + username;
-        }
+        const username = normalizeUsername(req.params.username);
 
-        const subs = await Subscription.find({ telegramUsername: username })
+        const subs = await Subscription.find({ telegramUsername: { $regex: `^${username}$`, $options: 'i' } })
             .sort({ createdAt: -1 });
 
-        const STATUS_PRIORITY = { active: 0, pending: 1, expired: 2, failed: 3 };
+        const STATUS_PRIORITY = { active: 0, pending: 1, reconciling: 2, manual_review: 3, expired: 4, failed: 5 };
         subs.sort((a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9));
         const sub = subs[0] || null;
 
@@ -108,7 +68,7 @@ router.get('/api/status/:username', async (req, res) => {
         }
 
         const result = {
-            status: sub.status,
+            status: sub.status === 'active' && sub.expiresAt <= new Date() ? 'expired' : sub.status,
             telegramUsername: sub.telegramUsername,
             amount: sub.amount || 0,
             txHash: sub.txHash || null,
@@ -117,7 +77,7 @@ router.get('/api/status/:username', async (req, res) => {
             createdAt: sub.createdAt,
         };
 
-        if (sub.status === 'active') {
+        if (result.status === 'active') {
             const now = new Date();
             const remaining = Math.max(0, Math.ceil((sub.expiresAt - now) / (1000 * 60 * 60 * 24)));
             const totalDays = sub.paidAt
@@ -126,9 +86,13 @@ router.get('/api/status/:username', async (req, res) => {
             result.remainingDays = remaining;
             result.totalDays = totalDays;
             result.message = `VIP 会员，剩余 ${remaining} 天`;
-        } else if (sub.status === 'pending') {
+        } else if (result.status === 'pending') {
             result.message = '等待支付确认中...';
-        } else if (sub.status === 'expired') {
+        } else if (result.status === 'reconciling') {
+            result.message = '付款窗口已结束，正在持续核对到账，请勿重复转账';
+        } else if (result.status === 'manual_review') {
+            result.message = '订单需要人工核对，请联系客服并提供交易哈希';
+        } else if (result.status === 'expired') {
             result.message = '会员已到期，请续费';
         } else {
             result.message = '订单已失效';
@@ -137,7 +101,7 @@ router.get('/api/status/:username', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('查询状态出错:', error);
-        res.status(500).json({ error: '服务器内部错误' });
+        res.status(error.status || 500).json({ error: error.status ? error.message : '服务器内部错误' });
     }
 });
 
@@ -147,104 +111,35 @@ router.get('/api/status/:username', async (req, res) => {
  */
 router.get('/api/order/:id', async (req, res) => {
     try {
+        if (!/^[a-f0-9]{24}$/i.test(req.params.id)) {
+            return res.status(400).json({ error: '无效订单编号' });
+        }
         const sub = await Subscription.findById(req.params.id);
         if (!sub) {
             return res.status(404).json({ error: '订单不存在' });
         }
+        const token = req.get('Authorization')?.replace(/^Bearer /, '');
+        if (!ownsOrder(sub, token)) return res.status(403).json({ error: '无权访问此订单，请使用创建订单的浏览器' });
+        let inviteLink = null;
+        if (sub.status === 'active' && sub.expiresAt > new Date()) {
+            try { inviteLink = await ensureInviteLink(sub._id); } catch (error) {
+                console.error(`Invite delivery retry failed for ${sub._id}:`, error.message);
+            }
+        }
         res.json({
-            status: sub.status,
+            status: sub.status === 'active' && sub.expiresAt <= new Date() ? 'expired' : sub.status,
             telegramUsername: sub.telegramUsername,
             expiresAt: sub.expiresAt,
             txHash: sub.txHash,
-            inviteLink: sub.inviteLink || null,
+            inviteLink,
             isRenewal: sub.isRenewal || false,
+            amount: sub.expectedRaw ? formatAmount(sub.expectedRaw) : sub.amount,
+            paymentDeadline: sub.paymentDeadline,
+            checkingDelayed: !!sub.lastPaymentError,
         });
     } catch (error) {
         res.status(500).json({ error: '服务器内部错误' });
     }
 });
-
-/**
- * 后台处理支付：轮询链上交易 -> 确认到账 -> 激活会员 -> 发送邀请
- */
-async function processPayment(sub) {
-    const sinceTimestamp = sub.createdAt.getTime();
-    const minAmount = config.schedule.subscriptionAmount;
-
-    console.log(`开始轮询到账: ${sub.telegramUsername}, 最低 ${minAmount} USDT`);
-
-    const payment = await pollPayment(sinceTimestamp, minAmount);
-
-    if (!payment) {
-        console.log(`轮询超时，未检测到付款: ${sub.telegramUsername}`);
-        sub.status = 'failed';
-        await sub.save();
-        return;
-    }
-
-    // 防止同一笔交易被多个订单重复使用
-    const duplicateTx = await Subscription.findOne({
-        txHash: payment.txHash,
-        _id: { $ne: sub._id },
-    });
-    if (duplicateTx) {
-        console.log(`txHash ${payment.txHash} 已被订单 ${duplicateTx._id} 使用，跳过`);
-        sub.status = 'failed';
-        await sub.save();
-        return;
-    }
-
-    console.log(`到账确认: ${sub.telegramUsername}, txHash: ${payment.txHash}, ${payment.amount} USDT`);
-
-    // 重新从 DB 读取最新状态（用户可能在轮询期间 /start 绑定了 userId）
-    const freshSub = await Subscription.findById(sub._id);
-    if (!freshSub || freshSub.status !== 'pending') {
-        console.log(`订单 ${sub._id} 状态已变更 (${freshSub?.status})，跳过`);
-        return;
-    }
-
-    const now = new Date();
-    const addDays = config.schedule.subscriptionDays * 24 * 60 * 60 * 1000;
-
-    // 检查是否有现存的 active 订阅（续费场景）
-    const activeSub = await Subscription.findOne({
-        telegramUsername: freshSub.telegramUsername,
-        status: 'active',
-        _id: { $ne: freshSub._id },
-    });
-
-    freshSub.status = 'active';
-    freshSub.txHash = payment.txHash;
-    freshSub.amount = payment.amount;
-    freshSub.paidAt = now;
-
-    if (activeSub) {
-        // 续费：在原到期时间基础上累加
-        const baseTime = activeSub.expiresAt > now ? activeSub.expiresAt : now;
-        freshSub.expiresAt = new Date(baseTime.getTime() + addDays);
-        freshSub.telegramUserId = freshSub.telegramUserId || activeSub.telegramUserId;
-        freshSub.inviteLink = activeSub.inviteLink;
-        freshSub.isRenewal = true;
-
-        // 旧订阅标记为 expired（已被续费订单替代）
-        activeSub.status = 'expired';
-        await activeSub.save();
-
-        console.log(`续费成功: ${freshSub.telegramUsername}, 原到期 ${activeSub.expiresAt.toISOString()}, 新到期 ${freshSub.expiresAt.toISOString()}`);
-    } else {
-        // 新订阅：从当前时间算起
-        freshSub.expiresAt = new Date(now.getTime() + addDays);
-
-        try {
-            const link = await createInviteLink(freshSub.telegramUsername);
-            freshSub.inviteLink = link;
-            console.log(`邀请链接已生成: ${freshSub.telegramUsername} -> ${link}`);
-        } catch (error) {
-            console.error(`生成邀请链接失败: ${freshSub.telegramUsername}`, error.message);
-        }
-    }
-
-    await freshSub.save();
-}
 
 module.exports = router;

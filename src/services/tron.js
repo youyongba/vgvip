@@ -1,86 +1,75 @@
+const https = require('node:https');
 const config = require('../config');
-const Subscription = require('../models/subscription');
+const agent = new https.Agent({ keepAlive: true, family: 4 });
 
-const USDT_DECIMALS = 6;
-
-/**
- * 查询收款地址的 TRC20 USDT 入账记录
- * 返回 sinceTimestamp 之后、金额 >= minAmount 且未被其他订单占用的第一笔匹配交易
- */
-async function findPayment(sinceTimestamp, minAmount) {
-    const url = `${config.tron.apiUrl}/v1/accounts/${config.tron.merchantAddress}/transactions/trc20`
-        + `?only_to=true`
-        + `&only_confirmed=true`
-        + `&contract_address=${config.tron.usdtContract}`
-        + `&min_timestamp=${sinceTimestamp}`
-        + `&limit=50`
-        + `&order_by=block_timestamp,desc`;
-
-    const res = await fetch(url);
-    if (!res.ok) {
-        throw new Error(`TronGrid API 错误: ${res.status}`);
-    }
-
-    const json = await res.json();
-    const txList = json.data || [];
-
-    const minRaw = BigInt(Math.round(minAmount * (10 ** USDT_DECIMALS)));
-
-    // 查询已被其他订单使用的 txHash，避免一笔交易匹配多个订单
-    const usedHashes = new Set(
-        (await Subscription.find(
-            { txHash: { $ne: null } },
-            { txHash: 1 }
-        )).map(s => s.txHash)
-    );
-
-    for (const tx of txList) {
-        const toAddr = tx.to;
-        const value = BigInt(tx.value || '0');
-        if (
-            toAddr === config.tron.merchantAddress &&
-            value >= minRaw &&
-            !usedHashes.has(tx.transaction_id)
-        ) {
-            return {
-                txHash: tx.transaction_id,
-                amount: Number(value) / (10 ** USDT_DECIMALS),
-                timestamp: tx.block_timestamp,
-            };
-        }
-    }
-
-    return null;
-}
-
-/**
- * 轮询到账，每 interval 毫秒查一次，最多 maxDuration 毫秒
- */
-function pollPayment(sinceTimestamp, minAmount, { interval = 30000, maxDuration = 15 * 60 * 1000 } = {}) {
+function requestJson(url) {
     return new Promise((resolve, reject) => {
-        const startTime = Date.now();
-
-        async function check() {
-            try {
-                const result = await findPayment(sinceTimestamp, minAmount);
-                if (result) {
-                    return resolve(result);
-                }
-                if (Date.now() - startTime >= maxDuration) {
-                    return resolve(null);
-                }
-                setTimeout(check, interval);
-            } catch (err) {
-                console.error('轮询到账出错:', err.message);
-                if (Date.now() - startTime >= maxDuration) {
-                    return resolve(null);
-                }
-                setTimeout(check, interval);
+        const req = https.get(url, { agent, family: 4 }, (res) => {
+            if (res.statusCode !== 200) {
+                res.resume();
+                reject(new Error(`TronGrid HTTP ${res.statusCode}`));
+                return;
             }
-        }
-
-        check();
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => {
+                body += chunk;
+                if (body.length > 8 * 1024 * 1024) req.destroy(new Error('TronGrid response too large'));
+            });
+            res.on('error', reject);
+            res.on('end', () => {
+                try { resolve(JSON.parse(body)); } catch (error) { reject(error); }
+            });
+        });
+        const timeout = setTimeout(() => req.destroy(new Error('TronGrid request timed out')), config.payment.requestTimeoutMs);
+        req.on('close', () => clearTimeout(timeout));
+        req.on('error', reject);
     });
 }
 
-module.exports = { findPayment, pollPayment };
+function matchesPayment(tx, order) {
+    return tx.type === 'Transfer'
+        && tx.to === order.paymentAddress
+        && tx.token_info?.address === order.tokenContract
+        && Number(tx.token_info.decimals) === 6
+        && /^[a-f0-9]{64}$/i.test(tx.transaction_id || '')
+        && /^\d+$/.test(tx.value || '')
+        && BigInt(tx.value) === BigInt(order.expectedRaw)
+        && Number.isSafeInteger(tx.block_timestamp)
+        && tx.block_timestamp >= order.createdAt.getTime()
+        && tx.block_timestamp <= order.paymentDeadline.getTime();
+}
+
+// An upstream error is never interpreted as proof that no payment exists.
+async function findPayment(order, { fetchPage = requestJson } = {}) {
+    if (!order.expectedRaw || !order.paymentDeadline || !order.paymentAddress || !order.tokenContract) {
+        throw new Error('Legacy or incomplete order requires manual reconciliation');
+    }
+    const url = new URL(`/v1/accounts/${order.paymentAddress}/transactions/trc20`, config.tron.apiUrl);
+    url.search = new URLSearchParams({
+        only_to: 'true', only_confirmed: 'true', contract_address: order.tokenContract,
+        min_timestamp: String(order.createdAt.getTime()),
+        max_timestamp: String(order.paymentDeadline.getTime()),
+        limit: '200', order_by: 'block_timestamp,asc',
+    }).toString();
+    const fingerprints = new Set();
+    for (let page = 0; page < 100; page++) {
+        const json = await fetchPage(url);
+        if (json.success !== true || !Array.isArray(json.data)) {
+            throw new Error('Invalid TronGrid response');
+        }
+        for (const tx of json.data) {
+            if (matchesPayment(tx, order)) {
+                return { txHash: tx.transaction_id, amount: Number(tx.value) / 1e6, timestamp: tx.block_timestamp };
+            }
+        }
+        const fingerprint = json.meta?.fingerprint;
+        if (!fingerprint) return null;
+        if (fingerprints.has(fingerprint)) throw new Error('Repeated TronGrid pagination cursor');
+        fingerprints.add(fingerprint);
+        url.searchParams.set('fingerprint', fingerprint);
+    }
+    throw new Error('TronGrid pagination limit reached; reconciliation must retry');
+}
+
+module.exports = { findPayment, matchesPayment };

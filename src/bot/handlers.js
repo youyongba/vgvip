@@ -1,7 +1,9 @@
 const { chat: aiChat } = require('../services/ai');
 const config = require('../config');
 const Subscription = require('../models/subscription');
-const { createInviteLink, sendInviteMessage, removeFromGroup } = require('../services/membership');
+const { ensureInviteLink, sendInviteMessage, removeFromGroup } = require('../services/membership');
+const Member = require('../models/member');
+const { normalizeUsername, ensureMember } = require('../services/payments');
 
 const INLINE_KEYBOARD = {
     reply_markup: {
@@ -35,10 +37,10 @@ const HELP_TEXT = `
 
 function registerHandlers(bot) {
     bot.on('channel_post', (msg) => handleChannelPost(bot, msg));
-    bot.on('text', (msg) => handleText(bot, msg));
+    bot.on('text', (msg) => handleText(bot, msg).catch(error => console.error('Message handling failed:', error.message)));
     bot.on('document', (msg) => handleDocument(bot, msg));
     bot.on('callback_query', (query) => handleCallbackQuery(bot, query));
-    bot.on('new_chat_members', (msg) => handleNewChatMembers(bot, msg));
+    bot.on('new_chat_members', (msg) => handleNewChatMembers(bot, msg).catch(error => console.error('Membership check failed:', error.message)));
 }
 
 function handleChannelPost(bot, msg) {
@@ -178,20 +180,33 @@ async function handleNewChatMembers(bot, msg) {
     for (const member of members) {
         if (member.is_bot) continue;
 
-        const username = member.username ? `@${member.username}` : null;
+        const username = member.username ? normalizeUsername(member.username) : null;
         const userId = member.id;
 
         const sub = await Subscription.findOne({
             status: 'active',
-            ...(username ? { telegramUsername: username } : { telegramUserId: userId }),
+            expiresAt: { $gt: new Date() },
+            $or: [
+                { telegramUserId: userId },
+                ...(username ? [{ telegramUsername: { $regex: `^${username}$`, $options: 'i' }, telegramUserId: null }] : []),
+            ],
         });
 
         if (sub) {
-            // 匹配成功，回填 userId
-            if (!sub.telegramUserId) {
-                sub.telegramUserId = userId;
-                await sub.save();
+            const account = normalizeUsername(sub.telegramUsername);
+            await ensureMember(account);
+            const bound = await Member.updateOne(
+                { _id: account, $or: [{ telegramUserId: null }, { telegramUserId: userId }] },
+                { $set: { telegramUserId: userId } }
+            );
+            if (!bound.matchedCount) {
+                await removeFromGroup(userId);
+                continue;
             }
+            await Subscription.updateMany(
+                { telegramUsername: { $regex: `^${account}$`, $options: 'i' }, telegramUserId: null },
+                { $set: { telegramUserId: userId } }
+            );
             console.log(`入群校验通过: ${username || userId}`);
         } else {
             // 无有效订阅，踢出
@@ -214,42 +229,48 @@ async function handleNewChatMembers(bot, msg) {
  * 如果有已支付但未发邀请的订阅，立即发送邀请链接。
  */
 async function handleStart(bot, msg) {
+    if (msg.chat.type !== 'private') return;
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    const username = msg.from.username ? `@${msg.from.username}` : null;
+    const username = msg.from.username ? normalizeUsername(msg.from.username) : null;
 
-    if (!username) {
+    const boundMember = await Member.findOne({ telegramUserId: userId }).sort({ expiresAt: -1 });
+    if (!username && !boundMember) {
         bot.sendMessage(chatId,
             '欢迎！请先在 Telegram 设置中设置用户名（username），然后再试。'
         );
         return;
     }
 
-    // 绑定 telegramUserId 到订阅记录
-    const sub = await Subscription.findOne({
-        telegramUsername: username,
-        status: { $in: ['pending', 'active'] },
-    }).sort({ createdAt: -1 });
-
-    if (sub && !sub.telegramUserId) {
-        sub.telegramUserId = userId;
-        await sub.save();
+    const account = boundMember?._id || username;
+    await ensureMember(account);
+    const bound = await Member.updateOne(
+        { _id: account, $or: [{ telegramUserId: null }, { telegramUserId: userId }] },
+        { $set: { telegramUserId: userId } }
+    );
+    if (!bound.matchedCount) {
+        await bot.sendMessage(chatId, '该订阅已绑定其他 Telegram ID，请联系客服核对。');
+        return;
     }
+    await Subscription.updateMany(
+        { telegramUsername: { $regex: `^${account}$`, $options: 'i' }, telegramUserId: null },
+        { $set: { telegramUserId: userId } }
+    );
+    const sub = await Subscription.findOne({
+        telegramUsername: { $regex: `^${account}$`, $options: 'i' },
+        status: 'active', expiresAt: { $gt: new Date() },
+    }).sort({ expiresAt: -1 });
 
     // 已支付的 active 订阅 → 直接把邀请链接发给用户
     if (sub && sub.status === 'active') {
-        let link = sub.inviteLink;
-        // 如果之前没生成过链接（或链接丢失），重新生成一个
-        if (!link) {
-            try {
-                link = await createInviteLink(username);
-                sub.inviteLink = link;
-                await sub.save();
-            } catch (error) {
-                console.error('生成邀请链接失败:', error.message);
-                bot.sendMessage(chatId, '邀请链接生成失败，请稍后再试或联系客服。');
-                return;
-            }
+        let link;
+        try {
+            link = await ensureInviteLink(sub._id, { refresh: true });
+            if (!link) throw new Error('Invitation is being generated');
+        } catch (error) {
+            console.error('生成邀请链接失败:', error.message);
+            await bot.sendMessage(chatId, '邀请链接生成失败，请稍后发送 /start 重试或联系客服。');
+            return;
         }
         try {
             await sendInviteMessage(userId, link);
@@ -260,7 +281,11 @@ async function handleStart(bot, msg) {
         return;
     }
 
-    if (sub && sub.status === 'pending') {
+    const pending = await Subscription.findOne({
+        telegramUsername: { $regex: `^${account}$`, $options: 'i' },
+        status: { $in: ['pending', 'reconciling', 'manual_review'] },
+    });
+    if (pending) {
         bot.sendMessage(chatId,
             `已记录您的账号 ${username}。\n` +
             `您有一个待支付的订单，支付确认后网页会直接显示邀请链接。`

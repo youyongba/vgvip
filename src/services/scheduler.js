@@ -2,15 +2,22 @@ const schedule = require('node-schedule');
 const config = require('../config');
 const Subscription = require('../models/subscription');
 const { sendReminder, notifyAndRemove } = require('./membership');
+const Member = require('../models/member');
+const { normalizeUsername, acquireMemberLock, releaseMemberLock } = require('./payments');
 
 function startScheduler() {
     console.log(`定时任务已启动, cron: ${config.schedule.cron}`);
 
-    schedule.scheduleJob(config.schedule.cron, async () => {
-        console.log(`[${new Date().toISOString()}] 执行定时检查...`);
-        await handleExpired();
-        await handleReminders();
-        await handleTimedOutOrders();
+    let checking = false;
+    schedule.scheduleJob('* * * * *', async () => {
+        if (checking) return;
+        checking = true;
+        try { await handleExpired(); } catch (error) {
+            console.error('Expiry check failed:', error.message);
+        } finally { checking = false; }
+    });
+    schedule.scheduleJob(config.schedule.cron, () => {
+        handleReminders().catch(error => console.error('Reminder check failed:', error.message));
     });
 }
 
@@ -28,20 +35,46 @@ async function handleExpired() {
     let skipped = 0;
 
     for (const sub of expired) {
-        console.log(`会员到期: ${sub.telegramUsername} (${sub.telegramUserId})`);
-        if (sub.telegramUserId) {
-            const result = await notifyAndRemove(sub.telegramUserId);
-            if (result === 'skipped') {
-                console.log(`管理员/群主 ${sub.telegramUsername} 跳过踢出，仅标记过期`);
-                skipped++;
-            } else {
-                kicked++;
+        const username = normalizeUsername(sub.telegramUsername);
+        const owner = await acquireMemberLock(username);
+        if (!owner) continue;
+        try {
+            const member = await Member.findOne({
+                _id: username, lockOwner: owner, lockUntil: { $gt: new Date() },
+            });
+            if (!member) continue;
+            if (member.expiresAt > now) {
+                // A replaced legacy row must never remove a renewed member.
+                await Subscription.updateOne(
+                    { _id: sub._id, status: 'active', expiresAt: { $lte: now } },
+                    { $set: { status: 'expired' } }
+                );
+                continue;
             }
-        } else {
-            console.warn(`⚠️ [警告] 用户 ${sub.telegramUsername} (订单 ${sub._id}) telegramUserId 为空，无法发送通知和踢出，请人工排查`);
+            const userId = member.telegramUserId || sub.telegramUserId;
+            if (userId) {
+                const otherMembership = await Member.exists({ telegramUserId: userId, expiresAt: { $gt: now } });
+                if (otherMembership) {
+                    await Subscription.updateOne(
+                        { _id: sub._id, status: 'active', expiresAt: { $lte: now } },
+                        { $set: { status: 'expired' } }
+                    );
+                    continue;
+                }
+                const result = await notifyAndRemove(userId);
+                if (result === false) continue;
+                if (result === 'skipped') skipped++;
+                else kicked++;
+            } else {
+                console.warn(`Expired member ${username} has no Telegram ID`);
+            }
+            await Subscription.updateMany(
+                { telegramUsername: { $regex: `^${username}$`, $options: 'i' }, status: 'active', expiresAt: { $lte: now } },
+                { $set: { status: 'expired' } }
+            );
+        } finally {
+            await releaseMemberLock(username, owner);
         }
-        sub.status = 'expired';
-        await sub.save();
     }
 
     if (expired.length > 0) {
@@ -80,19 +113,4 @@ async function handleReminders() {
     }
 }
 
-/**
- * 订单超时: pending 状态超过 30 分钟 -> 标记 failed
- */
-async function handleTimedOutOrders() {
-    const timeout = new Date(Date.now() - 30 * 60 * 1000);
-    const result = await Subscription.updateMany(
-        { status: 'pending', createdAt: { $lte: timeout } },
-        { $set: { status: 'failed' } }
-    );
-
-    if (result.modifiedCount > 0) {
-        console.log(`已标记 ${result.modifiedCount} 个超时订单为 failed`);
-    }
-}
-
-module.exports = { startScheduler };
+module.exports = { startScheduler, handleExpired };

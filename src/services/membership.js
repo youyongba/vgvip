@@ -1,5 +1,6 @@
-const bot = require('../bot');
 const config = require('../config');
+const Subscription = require('../models/subscription');
+const { randomBytes } = require('node:crypto');
 
 const vipGroupId = config.telegram.vipGroupId;
 const PROTECTED_STATUSES = new Set(['creator', 'administrator']);
@@ -9,6 +10,7 @@ const PROTECTED_STATUSES = new Set(['creator', 'administrator']);
  */
 async function isGroupAdmin(telegramUserId) {
     try {
+        const bot = require('../bot');
         const member = await bot.getChatMember(vipGroupId, telegramUserId);
         return PROTECTED_STATUSES.has(member.status);
     } catch (error) {
@@ -23,6 +25,7 @@ const INVITE_EXPIRE_MINUTES = 30;
  * 生成一次性邀请链接，限 1 人使用，30 分钟后过期
  */
 async function createInviteLink(telegramUsername) {
+    const bot = require('../bot');
     const expireDate = Math.floor(Date.now() / 1000) + INVITE_EXPIRE_MINUTES * 60;
     const link = await bot.createChatInviteLink(vipGroupId, {
         member_limit: 1,
@@ -32,10 +35,42 @@ async function createInviteLink(telegramUsername) {
     return link.invite_link;
 }
 
+async function ensureInviteLink(orderId, { refresh = false } = {}) {
+    const now = new Date();
+    const order = await Subscription.findById(orderId);
+    if (!order || order.status !== 'active' || order.expiresAt <= now) return null;
+    if (!refresh && order.inviteLink && order.inviteExpiresAt > new Date(now.getTime() + 15000)) {
+        return order.inviteLink;
+    }
+    const owner = randomBytes(16).toString('hex');
+    const locked = await Subscription.findOneAndUpdate(
+        { _id: orderId, status: 'active', $or: [
+            { inviteLockUntil: { $lte: now } }, { inviteLockUntil: { $exists: false } },
+        ] },
+        { $set: { inviteLockOwner: owner, inviteLockUntil: new Date(now.getTime() + 60000) } },
+        { new: true }
+    );
+    if (!locked) return null;
+    try {
+        const link = await createInviteLink(order.telegramUsername);
+        const result = await Subscription.updateOne(
+            { _id: orderId, status: 'active', inviteLockOwner: owner },
+            { $set: { inviteLink: link, inviteExpiresAt: new Date(Date.now() + INVITE_EXPIRE_MINUTES * 60000 - 5000) } }
+        );
+        return result.modifiedCount === 1 ? link : null;
+    } finally {
+        await Subscription.updateOne(
+            { _id: orderId, inviteLockOwner: owner },
+            { $set: { inviteLockOwner: null, inviteLockUntil: new Date(0) } }
+        );
+    }
+}
+
 /**
  * 通过 Bot 私信发送邀请链接给用户（备用通道，需用户先 /start Bot）
  */
 async function sendInviteMessage(telegramUserId, inviteLink) {
+    const bot = require('../bot');
     await bot.sendMessage(telegramUserId,
         `🎉 支付确认成功！\n\n` +
         `点击下方链接加入 VIP 专属群：\n${inviteLink}\n\n` +
@@ -48,6 +83,7 @@ async function sendInviteMessage(telegramUserId, inviteLink) {
  * 返回 'skipped' 表示受保护身份，true 表示成功踢出，false 表示失败
  */
 async function removeFromGroup(telegramUserId) {
+    const bot = require('../bot');
     if (await isGroupAdmin(telegramUserId)) {
         console.log(`用户 ${telegramUserId} 是管理员/群主，跳过踢出`);
         return 'skipped';
@@ -67,6 +103,7 @@ async function removeFromGroup(telegramUserId) {
  * 发送到期提醒私信（管理员/群主也会收到提醒，但不会被踢出）
  */
 async function sendReminder(telegramUserId, expiresAt) {
+    const bot = require('../bot');
     const dateStr = expiresAt.toLocaleDateString('zh-CN');
     const admin = await isGroupAdmin(telegramUserId);
     const text = admin
@@ -90,6 +127,7 @@ async function sendReminder(telegramUserId, expiresAt) {
  * 发送到期通知并踢出（管理员/群主只通知不踢出）
  */
 async function notifyAndRemove(telegramUserId) {
+    const bot = require('../bot');
     const admin = await isGroupAdmin(telegramUserId);
 
     const text = admin
@@ -114,4 +152,4 @@ async function notifyAndRemove(telegramUserId) {
     return removeFromGroup(telegramUserId);
 }
 
-module.exports = { isGroupAdmin, createInviteLink, sendInviteMessage, removeFromGroup, sendReminder, notifyAndRemove };
+module.exports = { isGroupAdmin, createInviteLink, ensureInviteLink, sendInviteMessage, removeFromGroup, sendReminder, notifyAndRemove };
