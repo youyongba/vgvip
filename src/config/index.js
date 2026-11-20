@@ -14,8 +14,8 @@ const config = {
         baseURL: 'https://api.deepseek.com/v1',
     },
 
-    mongo: {
-        uri: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/telegram-vip-db',
+    sqlite: {
+        path: process.env.SQLITE_PATH || './data/telegram-vip.sqlite',
     },
 
     tron: {

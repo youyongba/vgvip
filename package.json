@@ -13,11 +13,11 @@
   "license": "ISC",
   "dependencies": {
     "@web3-storage/w3up-client": "^17.3.0",
+    "better-sqlite3": "12.11.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "ejs": "^4.0.1",
     "express": "^5.2.1",
-    "mongoose": "^9.0.1",
     "node-schedule": "^2.1.1",
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^6.10.0",

@@ -48,7 +48,7 @@ POST /api/subscribe
 {
   "status": "pending",
   "message": "订单已创建，请转账后等待确认",
-  "orderId": "6651a2b3c4d5e6f7g8h9i0j1",
+  "orderId": "6651a2b3c4d5e6f7a8b9c0d1",
   "isRenewal": false
 }
 ```
@@ -59,7 +59,7 @@ POST /api/subscribe
 {
   "status": "pending",
   "message": "续费订单已创建，当前会员到期时间 2026/3/15，续费后将累加 30 天",
-  "orderId": "6651a2b3c4d5e6f7g8h9i0j2",
+  "orderId": "6651a2b3c4d5e6f7a8b9c0d2",
   "isRenewal": true
 }
 ```
@@ -70,7 +70,7 @@ POST /api/subscribe
 {
   "status": "pending",
   "message": "订单已创建，等待支付确认中...",
-  "orderId": "6651a2b3c4d5e6f7g8h9i0j1"
+  "orderId": "6651a2b3c4d5e6f7a8b9c0d1"
 }
 ```
 
@@ -200,7 +200,7 @@ GET /api/order/:id
 
 | 参数 | 位置 | 类型 | 说明 |
 |------|------|------|------|
-| id | path | string | MongoDB ObjectId，订单唯一标识 |
+| id | path | string | 24 位十六进制订单 ID，订单唯一标识 |
 
 ### 响应
 
@@ -278,8 +278,8 @@ POST /webhook/{BOT_TOKEN}
 | expiresAt | Date | null | 会员到期时间 |
 | reminded | Boolean | false | 是否已发送到期提醒 |
 | isRenewal | Boolean | false | 是否为续费订单 |
-| createdAt | Date | 自动 | 订单创建时间（mongoose timestamps） |
-| updatedAt | Date | 自动 | 最后更新时间（mongoose timestamps） |
+| createdAt | Date | 自动 | 订单创建时间（SQLite 以毫秒整数存储，API 返回 ISO 8601） |
+| updatedAt | Date | 自动 | 最后更新时间（SQLite 以毫秒整数存储） |
 
 ---
 

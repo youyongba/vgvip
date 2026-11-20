@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
-const mongoose = require('mongoose');
+const { connectDB, closeDB, getDB } = require('./db');
 const Subscription = require('../models/subscription');
 const Member = require('../models/member');
 
@@ -89,24 +89,22 @@ test('checkOrder retains payment state on outage and schedules a retry', async (
     const updates = [];
     const service = loadService('payments', {
         './tron': { findPayment: async () => { throw Error('unavailable'); } },
-        '../models/subscription': { updateOne: async (query, update) => { updates.push(update); } },
+        '../models/subscription': { recordPaymentError: (...args) => { updates.push(args); } },
     });
     await service.checkOrder({ _id: 'order' });
-    assert.equal(updates[0].$set.status, undefined);
-    assert.equal(updates[0].$set.lastPaymentError, 'unavailable');
-    assert(updates[0].$set.nextCheckAt > new Date());
+    assert.equal(updates[0][1], 'unavailable');
+    assert(updates[0][2] > new Date());
 });
 
 test('unconfirmed deadline transitions to reconciliation, not failed', async () => {
     const updates = [];
     const service = loadService('payments', {
-        '../models/subscription': { updateOne: async (query, update) => updates.push(update) },
+        '../models/subscription': { recordPaymentCheck: (...args) => updates.push(args) },
     });
     await service.checkOrder({
         _id: 'order', paymentDeadline: new Date(now - 1), reconcileUntil: new Date(now + 86400000),
     });
-    assert.equal(updates[0].$set.status, 'reconciling');
-    assert.equal(updates[0].$unset.openOrderKey, 1);
+    assert.equal(updates[0][1], 'reconciling');
 });
 
 test('normal application import no longer breaks invitation generation', () => {
@@ -168,15 +166,16 @@ test('expired invitation is regenerated and expiry is persisted', async () => {
         '../config': { telegram: { vipGroupId: 'group' } },
         '../bot': { createChatInviteLink: async () => ({ invite_link: 'fresh-link' }) },
         '../models/subscription': {
-            findById: async () => ({ status: 'active', expiresAt: new Date(now + 86400000),
+            findById: () => ({ status: 'active', expiresAt: new Date(now + 86400000),
                 inviteLink: 'old-link', inviteExpiresAt: new Date(now - 1), telegramUsername: '@tester' }),
-            findOneAndUpdate: async () => ({}),
-            updateOne: async (query, update) => { updates.push(update); return { modifiedCount: 1 }; },
+            acquireInviteLock: () => true,
+            saveInviteLink: (...args) => { updates.push(args); return 1; },
+            releaseInviteLock: (...args) => { updates.push(args); },
         },
     });
     assert.equal(await service.ensureInviteLink('order'), 'fresh-link');
-    assert(updates[0].$set.inviteExpiresAt > new Date());
-    assert.equal(updates[1].$set.inviteLockOwner, null);
+    assert(updates[0][3] > new Date());
+    assert.equal(updates[1][0], 'order');
 });
 
 test('explicit invitation refresh replaces a possibly already-used link', async () => {
@@ -184,10 +183,11 @@ test('explicit invitation refresh replaces a possibly already-used link', async 
         '../config': { telegram: { vipGroupId: 'group' } },
         '../bot': { createChatInviteLink: async () => ({ invite_link: 'replacement-link' }) },
         '../models/subscription': {
-            findById: async () => ({ status: 'active', expiresAt: new Date(now + 86400000),
+            findById: () => ({ status: 'active', expiresAt: new Date(now + 86400000),
                 inviteLink: 'used-link', inviteExpiresAt: new Date(now + 1800000), telegramUsername: '@tester' }),
-            findOneAndUpdate: async () => ({}),
-            updateOne: async () => ({ modifiedCount: 1 }),
+            acquireInviteLock: () => true,
+            saveInviteLink: () => 1,
+            releaseInviteLock: () => {},
         },
     });
     assert.equal(await service.ensureInviteLink('order', { refresh: true }), 'replacement-link');
@@ -199,7 +199,7 @@ test('order invitation endpoint rejects requests without the private order token
         express: { Router: () => ({ get(route, handler) { routes.set(route, handler); }, post() {} }) },
         '../services/payments': payments,
         '../services/membership': { ensureInviteLink: async () => { throw Error('must not be reached'); } },
-        '../models/subscription': { findById: async () => ({ accessTokenHash: 'a'.repeat(64) }) },
+        '../models/subscription': { findById: () => ({ accessTokenHash: 'a'.repeat(64) }) },
     });
     assert(api);
     let status = 200;
@@ -213,10 +213,10 @@ test('obsolete expired order does not kick a renewed member', async () => {
     let cleaned = 0;
     const scheduler = loadService('scheduler', {
         '../models/subscription': {
-            find: async () => [{ _id: 'old', telegramUsername: '@tester' }],
-            updateOne: async () => { cleaned++; },
+            findExpiredActive: () => [{ _id: 'old', telegramUsername: '@tester' }],
+            markExpiredIfDue: () => { cleaned++; },
         },
-        '../models/member': { findOne: async () => ({ expiresAt: new Date(now + 86400000) }) },
+        '../models/member': { findLockedByOwner: () => ({ expiresAt: new Date(now + 86400000) }) },
         './payments': {
             normalizeUsername: payments.normalizeUsername,
             acquireMemberLock: async () => 'lock',
@@ -229,34 +229,42 @@ test('obsolete expired order does not kick a renewed member', async () => {
     assert.equal(cleaned, 1);
 });
 
-test('real replica-set payment transactions', { skip: !process.env.PAYMENT_TEST_MONGO_URI }, async t => {
-    // Only an explicitly supplied isolated test database is used.
-    const uri = process.env.PAYMENT_TEST_MONGO_URI;
-    assert.match(new URL(uri).hostname, /^(127\.0\.0\.1|localhost)$/);
-    await mongoose.connect(uri, { family: 4 });
+test('SQLite payment transactions', async t => {
+    connectDB(':memory:');
+    const count = (sql, ...params) => getDB().prepare(sql).get(...params).count;
     try {
-        await Subscription.createIndexes();
-        await Member.createIndexes();
         const paymentFor = (order, hash) => ({
             txHash: hash.repeat(64), amount: order.amount, timestamp: order.createdAt.getTime() + 1,
         });
         await t.test('parallel order creation returns exactly one payable order', async () => {
             const results = await Promise.allSettled(Array.from({ length: 12 }, () => payments.createOrder('@tester')));
             assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
-            assert.equal(await Subscription.countDocuments({ openOrderKey: '@tester' }), 1);
+            assert.equal(count("SELECT COUNT(*) AS count FROM subscriptions WHERE open_order_key = '@tester'"), 1);
             const result = results.find(r => r.status === 'fulfilled').value;
             const resumed = await payments.createOrder('@tester', result.token);
-            assert.equal(String(resumed.order._id), String(result.order._id));
+            assert.equal(resumed.order._id, result.order._id);
             assert(payments.ownsOrder(result.order, result.token));
             assert.equal(payments.ownsOrder(result.order, 'wrong'), false);
             await payments.activatePayment(result.order._id, paymentFor(result.order, '1'));
             assert.equal(await payments.activatePayment(result.order._id, paymentFor(result.order, '2')), false);
-            assert.equal((await Subscription.findById(result.order._id)).txHash, '1'.repeat(64));
+            assert.equal(Subscription.findById(result.order._id).txHash, '1'.repeat(64));
+        });
+        await t.test('worker lease allows only one processor to claim an order', async () => {
+            const result = await payments.createOrder('@worker_user');
+            const now = new Date();
+            const claimed = Subscription.claimNextWorker(now, 'worker-1', new Date(now.getTime() + 60000));
+            assert.equal(claimed._id, result.order._id);
+            assert.equal(Subscription.claimNextWorker(now, 'worker-2', new Date(now.getTime() + 60000)), null);
+            Subscription.releaseWorker(result.order._id, 'worker-1', new Date());
+            const reclaimed = Subscription.claimNextWorker(new Date(), 'worker-2', new Date(Date.now() + 60000));
+            assert.equal(reclaimed._id, result.order._id);
+            Subscription.releaseWorker(result.order._id, 'worker-2', new Date());
         });
         await t.test('two renewals add full 60 days, with a single active row', async () => {
-            const before = (await Member.findById('@tester')).expiresAt.getTime();
+            const before = Member.findById('@tester').expiresAt.getTime();
             const first = await payments.createOrder('@tester');
-            await Subscription.updateOne({ _id: first.order._id }, { $set: { status: 'reconciling' }, $unset: { openOrderKey: 1 } });
+            getDB().prepare("UPDATE subscriptions SET status = 'reconciling', open_order_key = NULL WHERE id = ?")
+                .run(first.order._id);
             const second = await payments.createOrder('@tester');
             assert.notEqual(first.order.expectedRaw, second.order.expectedRaw);
             const results = await Promise.allSettled([
@@ -269,25 +277,25 @@ test('real replica-set payment transactions', { skip: !process.env.PAYMENT_TEST_
                     await payments.activatePayment(row._id, paymentFor(row, i === 0 ? '3' : '4'));
                 }
             }
-            assert.equal((await Member.findById('@tester')).expiresAt.getTime(), before + 60 * 86400000);
-            assert.equal(await Subscription.countDocuments({ telegramUsername: '@tester', status: 'active' }), 1);
+            assert.equal(Member.findById('@tester').expiresAt.getTime(), before + 60 * 86400000);
+            assert.equal(count("SELECT COUNT(*) AS count FROM subscriptions WHERE telegram_username = '@tester' AND status = 'active'"), 1);
         });
-        await t.test('amount reservations survive payment and immutable fields cannot be changed', async () => {
-            const paid = await Subscription.findOne({ telegramUsername: '@tester', status: 'active' });
-            await assert.rejects(Subscription.create({
+        await t.test('amount reservations survive payment and immutable fields have no update API', async () => {
+            const paid = Subscription.findLatestActiveByUsername('@tester');
+            assert.throws(() => Subscription.create({
                 telegramUsername: '@amount_collision', paymentAddress: paid.paymentAddress, expectedRaw: paid.expectedRaw,
-            }), error => error.code === 11000);
-            await Subscription.updateOne({ _id: paid._id }, { $set: { expectedRaw: '1', subscriptionDays: 1 } });
-            const unchanged = await Subscription.findById(paid._id);
+            }), error => error.code?.startsWith('SQLITE_CONSTRAINT_'));
+            assert.equal(Subscription.updateOne, undefined);
+            const unchanged = Subscription.findById(paid._id);
             assert.equal(unchanged.expectedRaw, paid.expectedRaw);
             assert.equal(unchanged.subscriptionDays, 30);
         });
         await t.test('duplicate receipt rolls back membership and order together', async () => {
             const result = await payments.createOrder('@other_user');
             await assert.rejects(payments.activatePayment(result.order._id, paymentFor(result.order, '1')));
-            assert.equal((await Member.findById('@other_user')).expiresAt, null);
-            assert.equal((await Subscription.findById(result.order._id)).status, 'pending');
-            assert.equal(await Subscription.countDocuments({ telegramUsername: '@tester', status: 'active' }), 1);
+            assert.equal(Member.findById('@other_user').expiresAt, null);
+            assert.equal(Subscription.findById(result.order._id).status, 'pending');
+            assert.equal(count("SELECT COUNT(*) AS count FROM subscriptions WHERE telegram_username = '@tester' AND status = 'active'"), 1);
         });
         await t.test('two processors cannot overwrite the receipt of the same order', async () => {
             const result = await payments.createOrder('@same_order');
@@ -295,21 +303,33 @@ test('real replica-set payment transactions', { skip: !process.env.PAYMENT_TEST_
                 payments.activatePayment(result.order._id, paymentFor(result.order, '6')),
                 payments.activatePayment(result.order._id, paymentFor(result.order, '7')),
             ]);
-            const paid = await Subscription.findById(result.order._id);
+            const paid = Subscription.findById(result.order._id);
             assert.equal(paid.status, 'active');
             const txHash = paid.txHash;
             assert.equal(await payments.activatePayment(result.order._id, paymentFor(result.order, '8')), false);
-            assert.equal((await Subscription.findById(result.order._id)).txHash, txHash);
+            assert.equal(Subscription.findById(result.order._id).txHash, txHash);
         });
         await t.test('expiry lock defers renewal without losing the receipt', async () => {
             const result = await payments.createOrder('@lock_user');
             const owner = await payments.acquireMemberLock('@lock_user');
             await assert.rejects(payments.activatePayment(result.order._id, paymentFor(result.order, '5')), /busy/);
-            assert.equal((await Subscription.findById(result.order._id)).txHash, null);
+            assert.equal(Subscription.findById(result.order._id).txHash, null);
             await payments.releaseMemberLock('@lock_user', owner);
             assert.equal(await payments.activatePayment(result.order._id, paymentFor(result.order, '5')), true);
         });
+        await t.test('unpaid orders progress from reconciliation to manual review', async () => {
+            const result = await payments.createOrder('@transition_user');
+            getDB().prepare('UPDATE subscriptions SET payment_deadline = ? WHERE id = ?')
+                .run(Date.now() - 1, result.order._id);
+            await payments.checkOrder(Subscription.findById(result.order._id));
+            assert.equal(Subscription.findById(result.order._id).status, 'reconciling');
+            assert.equal(Subscription.findById(result.order._id).openOrderKey, null);
+            getDB().prepare('UPDATE subscriptions SET reconcile_until = ? WHERE id = ?')
+                .run(Date.now() - 1, result.order._id);
+            await payments.checkOrder(Subscription.findById(result.order._id));
+            assert.equal(Subscription.findById(result.order._id).status, 'manual_review');
+        });
     } finally {
-        await mongoose.disconnect();
+        closeDB();
     }
 });

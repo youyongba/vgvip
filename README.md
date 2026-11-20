@@ -13,7 +13,7 @@
 ## 🛠️ 技术栈
 
 - **后端框架**: Node.js + Express
-- **数据库**: MongoDB (Mongoose)
+- **数据库**: SQLite (`better-sqlite3`)
 - **Telegram 交互**: `node-telegram-bot-api` (Webhook 模式)
 - **区块链交互**: `tronweb`
 - **AI 服务**: `openai` (接入 DeepSeek API)
@@ -23,15 +23,24 @@
 
 ### 1. 环境准备
 确保你的本地环境已安装以下依赖：
-- **Node.js** (推荐 v18 或以上版本)
-- **MongoDB** (本地运行或提供远程 URI)
+- **Node.js** v20.20.2
+- SQLite 数据库文件随应用自动创建，无需单独安装数据库服务
+- CentOS 8.5 源码构建时需要 Python 3、make 和 C++ 编译工具链
 - **内网穿透工具** (如 Cloudflare Tunnel `cloudflared` 或 `ngrok`，用于提供 HTTPS Webhook 地址)
 
 ### 2. 安装依赖包
 克隆代码后，在项目根目录运行：
 ```bash
-npm install
+npm ci
 ```
+
+请在部署目标机上安装依赖，不要复制其他操作系统的 `node_modules`。如果 CentOS 8.5 没有匹配的 `better-sqlite3` 预编译包，安装构建工具后从源码编译：
+
+```bash
+npm ci --build-from-source
+```
+
+SQLite 文件应位于应用账号可写的本地磁盘目录，不要放在 NFS/CIFS 上。首次启动会创建空库和表结构，不会导入原 MongoDB 历史数据。
 
 ### 3. 环境变量配置
 在项目根目录检查或修改 `.env` 文件。你需要配置以下关键信息：
@@ -50,8 +59,8 @@ DEEPSEEK_API_KEY=你的DeepSeek_API_Key
 # Webhook 地址 (必须是外网可访问的 HTTPS 地址)
 WEBHOOK_URL=https://你的内网穿透域名.trycloudflare.com
 
-# MongoDB 数据库连接
-MONGO_URI=mongodb://tg_vip_bot_user:qihong@127.0.0.1:27017/tg_vip_bot?authSource=tg_vip_bot
+# SQLite 数据库文件路径
+SQLITE_PATH=./data/telegram-vip.sqlite
 
 # Tron/TRC20 支付配置
 TRON_API_URL=https://api.trongrid.io
@@ -65,7 +74,6 @@ REMIND_BEFORE_DAYS=3     # 提前3天提醒到期
 SUBSCRIPTION_DAYS=30     # 订阅有效期30天
 SUBSCRIPTION_AMOUNT=50   # 订阅金额(USDT)
 ```
-*(注：为避免 Node.js 的 IPv6 解析问题，建议 MongoDB URI 中使用 `127.0.0.1` 替代 `localhost`)*
 
 ### 4. 启动内网穿透 (Webhook 必备)
 项目默认运行在 8080 端口。你需要将该端口暴露为公共 HTTPS 地址。以 Cloudflare 为例：
@@ -88,7 +96,7 @@ npm start
 ```
 
 启动成功后，终端将输出：
-> MongoDB 连接成功
+> SQLite 数据库连接成功
 > 服务器已在 http://localhost:8080 上运行
 > Webhook 地址: https://xxxx.trycloudflare.com/webhook/***
 
@@ -100,8 +108,8 @@ npm start
 - 你的内网穿透工具是否正在运行。
 - 启动日志中是否提示 Webhook 注册成功。
 
-**2. 数据库报错 `ECONNREFUSED ::1:27017`？**
-将 `.env` 文件中 `MONGO_URI` 的 `localhost` 改为 `127.0.0.1`。同时确保你的 MongoDB 服务已经正常启动并且配置了相应的账号密码。
+**2. `better-sqlite3` 无法加载或提示 `NODE_MODULE_VERSION` 不匹配？**
+确认使用 Node.js v20.20.2，并在目标机重新执行 `npm ci`。如果预编译包不匹配，安装 Python 3、make 和 C++ 编译工具链后执行 `npm ci --build-from-source`。备份数据库时应同时处理 SQLite 主文件及 WAL 文件。
 
 **3. 如何让机器人管理群组？**
 必须将机器人拉入你的 VIP 群组，并且**授予管理员权限**（特别是添加用户、踢出用户、发送消息的权限）。

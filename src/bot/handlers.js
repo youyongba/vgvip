@@ -183,30 +183,17 @@ async function handleNewChatMembers(bot, msg) {
         const username = member.username ? normalizeUsername(member.username) : null;
         const userId = member.id;
 
-        const sub = await Subscription.findOne({
-            status: 'active',
-            expiresAt: { $gt: new Date() },
-            $or: [
-                { telegramUserId: userId },
-                ...(username ? [{ telegramUsername: { $regex: `^${username}$`, $options: 'i' }, telegramUserId: null }] : []),
-            ],
-        });
+        const sub = Subscription.findValidForJoin(userId, username, new Date());
 
         if (sub) {
             const account = normalizeUsername(sub.telegramUsername);
             await ensureMember(account);
-            const bound = await Member.updateOne(
-                { _id: account, $or: [{ telegramUserId: null }, { telegramUserId: userId }] },
-                { $set: { telegramUserId: userId } }
-            );
-            if (!bound.matchedCount) {
+            const bound = Member.bindTelegramUser(account, userId, new Date());
+            if (!bound) {
                 await removeFromGroup(userId);
                 continue;
             }
-            await Subscription.updateMany(
-                { telegramUsername: { $regex: `^${account}$`, $options: 'i' }, telegramUserId: null },
-                { $set: { telegramUserId: userId } }
-            );
+            Subscription.bindTelegramUserByUsername(account, userId, new Date());
             console.log(`入群校验通过: ${username || userId}`);
         } else {
             // 无有效订阅，踢出
@@ -234,7 +221,7 @@ async function handleStart(bot, msg) {
     const userId = msg.from.id;
     const username = msg.from.username ? normalizeUsername(msg.from.username) : null;
 
-    const boundMember = await Member.findOne({ telegramUserId: userId }).sort({ expiresAt: -1 });
+    const boundMember = Member.findLatestByTelegramUserId(userId);
     if (!username && !boundMember) {
         bot.sendMessage(chatId,
             '欢迎！请先在 Telegram 设置中设置用户名（username），然后再试。'
@@ -244,22 +231,13 @@ async function handleStart(bot, msg) {
 
     const account = boundMember?._id || username;
     await ensureMember(account);
-    const bound = await Member.updateOne(
-        { _id: account, $or: [{ telegramUserId: null }, { telegramUserId: userId }] },
-        { $set: { telegramUserId: userId } }
-    );
-    if (!bound.matchedCount) {
+    const bound = Member.bindTelegramUser(account, userId, new Date());
+    if (!bound) {
         await bot.sendMessage(chatId, '该订阅已绑定其他 Telegram ID，请联系客服核对。');
         return;
     }
-    await Subscription.updateMany(
-        { telegramUsername: { $regex: `^${account}$`, $options: 'i' }, telegramUserId: null },
-        { $set: { telegramUserId: userId } }
-    );
-    const sub = await Subscription.findOne({
-        telegramUsername: { $regex: `^${account}$`, $options: 'i' },
-        status: 'active', expiresAt: { $gt: new Date() },
-    }).sort({ expiresAt: -1 });
+    Subscription.bindTelegramUserByUsername(account, userId, new Date());
+    const sub = Subscription.findLatestValidByUsername(account, new Date());
 
     // 已支付的 active 订阅 → 直接把邀请链接发给用户
     if (sub && sub.status === 'active') {
@@ -281,10 +259,7 @@ async function handleStart(bot, msg) {
         return;
     }
 
-    const pending = await Subscription.findOne({
-        telegramUsername: { $regex: `^${account}$`, $options: 'i' },
-        status: { $in: ['pending', 'reconciling', 'manual_review'] },
-    });
+    const pending = Subscription.findUnresolvedByUsername(account);
     if (pending) {
         bot.sendMessage(chatId,
             `已记录您的账号 ${username}。\n` +

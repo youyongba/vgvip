@@ -26,10 +26,7 @@ function startScheduler() {
  */
 async function handleExpired() {
     const now = new Date();
-    const expired = await Subscription.find({
-        status: 'active',
-        expiresAt: { $lte: now },
-    });
+    const expired = Subscription.findExpiredActive(now);
 
     let kicked = 0;
     let skipped = 0;
@@ -39,26 +36,18 @@ async function handleExpired() {
         const owner = await acquireMemberLock(username);
         if (!owner) continue;
         try {
-            const member = await Member.findOne({
-                _id: username, lockOwner: owner, lockUntil: { $gt: new Date() },
-            });
+            const member = Member.findLockedByOwner(username, owner, new Date());
             if (!member) continue;
             if (member.expiresAt > now) {
-                // A replaced legacy row must never remove a renewed member.
-                await Subscription.updateOne(
-                    { _id: sub._id, status: 'active', expiresAt: { $lte: now } },
-                    { $set: { status: 'expired' } }
-                );
+                // 已被续期的旧订阅不能导致会员被移出群组。
+                Subscription.markExpiredIfDue(sub._id, now);
                 continue;
             }
             const userId = member.telegramUserId || sub.telegramUserId;
             if (userId) {
-                const otherMembership = await Member.exists({ telegramUserId: userId, expiresAt: { $gt: now } });
+                const otherMembership = Member.hasValidMembershipForTelegramUser(userId, now);
                 if (otherMembership) {
-                    await Subscription.updateOne(
-                        { _id: sub._id, status: 'active', expiresAt: { $lte: now } },
-                        { $set: { status: 'expired' } }
-                    );
+                    Subscription.markExpiredIfDue(sub._id, now);
                     continue;
                 }
                 const result = await notifyAndRemove(userId);
@@ -68,10 +57,7 @@ async function handleExpired() {
             } else {
                 console.warn(`Expired member ${username} has no Telegram ID`);
             }
-            await Subscription.updateMany(
-                { telegramUsername: { $regex: `^${username}$`, $options: 'i' }, status: 'active', expiresAt: { $lte: now } },
-                { $set: { status: 'expired' } }
-            );
+            Subscription.expireAllDueForUsername(username, now);
         } finally {
             await releaseMemberLock(username, owner);
         }
@@ -89,19 +75,14 @@ async function handleReminders() {
     const now = new Date();
     const remindDeadline = new Date(now.getTime() + config.schedule.remindBeforeDays * 24 * 60 * 60 * 1000);
 
-    const toRemind = await Subscription.find({
-        status: 'active',
-        reminded: false,
-        expiresAt: { $gt: now, $lte: remindDeadline },
-    });
+    const toRemind = Subscription.findReminders(now, remindDeadline);
 
     for (const sub of toRemind) {
         if (sub.telegramUserId) {
             console.log(`发送到期提醒: ${sub.telegramUsername}`);
             const sent = await sendReminder(sub.telegramUserId, sub.expiresAt);
             if (sent) {
-                sub.reminded = true;
-                await sub.save();
+                Subscription.markReminded(sub._id, new Date());
             }
         } else {
             console.warn(`⚠️ [警告] 用户 ${sub.telegramUsername} (订单 ${sub._id}) telegramUserId 为空，无法发送到期提醒，请人工排查`);

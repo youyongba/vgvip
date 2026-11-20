@@ -37,32 +37,25 @@ async function createInviteLink(telegramUsername) {
 
 async function ensureInviteLink(orderId, { refresh = false } = {}) {
     const now = new Date();
-    const order = await Subscription.findById(orderId);
+    const order = Subscription.findById(orderId);
     if (!order || order.status !== 'active' || order.expiresAt <= now) return null;
     if (!refresh && order.inviteLink && order.inviteExpiresAt > new Date(now.getTime() + 15000)) {
         return order.inviteLink;
     }
     const owner = randomBytes(16).toString('hex');
-    const locked = await Subscription.findOneAndUpdate(
-        { _id: orderId, status: 'active', $or: [
-            { inviteLockUntil: { $lte: now } }, { inviteLockUntil: { $exists: false } },
-        ] },
-        { $set: { inviteLockOwner: owner, inviteLockUntil: new Date(now.getTime() + 60000) } },
-        { new: true }
+    const locked = Subscription.acquireInviteLock(
+        orderId, owner, now, new Date(now.getTime() + 60000)
     );
     if (!locked) return null;
     try {
         const link = await createInviteLink(order.telegramUsername);
-        const result = await Subscription.updateOne(
-            { _id: orderId, status: 'active', inviteLockOwner: owner },
-            { $set: { inviteLink: link, inviteExpiresAt: new Date(Date.now() + INVITE_EXPIRE_MINUTES * 60000 - 5000) } }
+        const changed = Subscription.saveInviteLink(
+            orderId, owner, link,
+            new Date(Date.now() + INVITE_EXPIRE_MINUTES * 60000 - 5000), new Date()
         );
-        return result.modifiedCount === 1 ? link : null;
+        return changed === 1 ? link : null;
     } finally {
-        await Subscription.updateOne(
-            { _id: orderId, inviteLockOwner: owner },
-            { $set: { inviteLockOwner: null, inviteLockUntil: new Date(0) } }
-        );
+        Subscription.releaseInviteLock(orderId, owner, new Date());
     }
 }
 

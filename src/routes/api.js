@@ -3,6 +3,7 @@ const config = require('../config');
 const Subscription = require('../models/subscription');
 const { createOrder, normalizeUsername, ownsOrder, formatAmount } = require('../services/payments');
 const { ensureInviteLink } = require('../services/membership');
+const { checkDB } = require('../services/db');
 
 const router = Router();
 
@@ -12,12 +13,10 @@ const router = Router();
  */
 router.get('/api/test-db', async (req, res) => {
     try {
-        // readyState: 0: disconnected, 1: connected, 2: connecting, 3: disconnecting
-        const state = Subscription.db.readyState;
-        if (state === 1) {
-            res.json({ success: true, message: '✅ 数据库连接正常！' });
+        if (checkDB()) {
+            res.json({ success: true, message: '✅ SQLite 数据库连接正常！' });
         } else {
-            res.json({ success: false, message: `❌ 数据库未连接 (状态码: ${state})` });
+            res.json({ success: false, message: '❌ SQLite 数据库未连接' });
         }
     } catch (error) {
         res.status(500).json({ success: false, message: `❌ 数据库错误: ${error.message}` });
@@ -56,8 +55,7 @@ router.get('/api/status/:username', async (req, res) => {
     try {
         const username = normalizeUsername(req.params.username);
 
-        const subs = await Subscription.find({ telegramUsername: { $regex: `^${username}$`, $options: 'i' } })
-            .sort({ createdAt: -1 });
+        const subs = Subscription.findByUsername(username);
 
         const STATUS_PRIORITY = { active: 0, pending: 1, reconciling: 2, manual_review: 3, expired: 4, failed: 5 };
         subs.sort((a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9));
@@ -114,7 +112,7 @@ router.get('/api/order/:id', async (req, res) => {
         if (!/^[a-f0-9]{24}$/i.test(req.params.id)) {
             return res.status(400).json({ error: '无效订单编号' });
         }
-        const sub = await Subscription.findById(req.params.id);
+        const sub = Subscription.findById(req.params.id);
         if (!sub) {
             return res.status(404).json({ error: '订单不存在' });
         }
